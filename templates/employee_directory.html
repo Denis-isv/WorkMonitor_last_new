@@ -1,0 +1,60 @@
+{% extends 'base.html' %}
+{% block title %}Сотрудники — WorkMonitor{% endblock %}
+{% block body %}
+<div class="app-shell">
+    {% include '_sidebar.html' %}
+    <main class="main-area">
+        <header class="topbar">
+            <div class="topbar-left">
+                <button class="icon-btn mobile-menu">☰</button>
+                <h1>Сотрудники</h1>
+            </div>
+            <div class="profile">
+                <span class="profile-name">{{ current_user.full_name }}</span>
+                <span class="avatar">{{ current_user.full_name[:1]|upper }}</span>
+                <a class="logout-link" href="/logout" title="Выйти">↗</a>
+            </div>
+        </header>
+
+        <section class="page-content">
+            {% with messages=get_flashed_messages(with_categories=true) %}
+            {% for category,message in messages %}
+            <div class="flash-message {{ category }}">{{ message }}</div>
+            {% endfor %}
+            {% endwith %}
+
+            <div class="page-intro">
+                <div>
+                    <p class="eyebrow">КОМАНДА</p>
+                    <h2>Сотрудники</h2>
+                    <p class="muted">Поиск не зависит от регистра и находит совпадение по части имени.</p>
+                </div>
+                {% if current_user.role=='admin' %}
+                <a class="primary-btn" href="/workspace/users">＋ Добавить сотрудника</a>
+                {% endif %}
+            </div>
+
+            <form class="search-bar" action="/employees">
+                <input name="q" value="{{ q }}" placeholder="Например: а, иван, ПЕТ…">
+                <button class="secondary-btn" type="submit">Найти</button>
+                {% if q %}<a class="text-btn" href="/employees">Сбросить</a>{% endif %}
+            </form>
+
+            <div class="employee-grid">
+                {% for u in users %}
+                <article class="employee-card">
+                    <div class="employee-avatar">{{ u.full_name[:1]|upper }}</div>
+                    <div class="employee-info">
+                        <strong>{{ u.full_name }}</strong>
+                        <span>{{ u.position or 'Сотрудник' }}{% if u.department %} · {{ u.department.name }}{% endif %}</span>
+                        <small>{{ 'Полная ставка' if u.work_rate=='full' else 'Полставки' }}</small>
+                    </div>
+                </article>
+                {% else %}
+                <div class="empty-panel">Ничего не найдено. Попробуй другую часть имени.</div>
+                {% endfor %}
+            </div>
+        </section>
+    </main>
+</div>
+{% endblock %}

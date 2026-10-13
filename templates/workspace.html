@@ -1,0 +1,286 @@
+{% extends 'base.html' %}
+{% block title %}{{ config.title }} — WorkMonitor{% endblock %}
+{% block body %}
+<div class="app-shell">
+    {% include '_sidebar.html' %}
+    <main class="main-area">
+        <header class="topbar">
+            <div class="topbar-left">
+                <button class="icon-btn mobile-menu" id="mobileMenu">☰</button>
+                <h1>{{ config.title }}</h1>
+            </div>
+            <div class="profile">
+                <span class="profile-name">{{ current_user.full_name }}</span>
+                <span class="avatar">{{ current_user.full_name[:1]|upper }}</span>
+                <a class="logout-link" href="/logout" title="Выйти">↗</a>
+            </div>
+        </header>
+
+        <section class="page-content">
+            <div class="page-intro">
+                <div>
+                    <p class="eyebrow">РАБОЧЕЕ ПРОСТРАНСТВО</p>
+                    <h2>{{ config.title }}</h2>
+                    <p class="muted">Записи, история и данные рабочего процесса.</p>
+                </div>
+                <button class="primary-btn" type="button" id="addRecordBtn">＋ Добавить</button>
+            </div>
+
+            {% with messages=get_flashed_messages(with_categories=true) %}
+            {% for category,message in messages %}
+            <div class="flash-message {{ category }}">{{ message }}</div>
+            {% endfor %}
+            {% endwith %}
+
+            <form class="search-bar" method="get">
+                <input name="q" value="{{ query_text }}" placeholder="Поиск по разделу…" aria-label="Поиск">
+                <button class="secondary-btn" type="submit">Найти</button>
+                {% if query_text %}<a class="text-btn" href="/workspace/{{ section }}">Сбросить</a>{% endif %}
+            </form>
+
+            {% if section in ('tasks','issues','projects') %}
+            <div class="filter-chips" style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+                <a class="text-btn {{ 'active' if not request.args.get('status') else '' }}"
+                href="/workspace/{{ section }}{% if query_text %}?q={{ query_text }}{% endif %}">Все</a>
+
+                {% if section == 'tasks' %}
+                    <a class="text-btn {{ 'active' if request.args.get('status') == 'new' else '' }}"
+                    href="/workspace/tasks?status=new{% if query_text %}&q={{ query_text }}{% endif %}">Новые</a>
+                    <a class="text-btn {{ 'active' if request.args.get('status') == 'in_progress' else '' }}"
+                    href="/workspace/tasks?status=in_progress{% if query_text %}&q={{ query_text }}{% endif %}">В работе</a>
+                    <a class="text-btn {{ 'active' if request.args.get('status') == 'completed' else '' }}"
+                    href="/workspace/tasks?status=completed{% if query_text %}&q={{ query_text }}{% endif %}">Завершённые</a>
+                    <a class="text-btn {{ 'active' if request.args.get('status') == 'cancelled' else '' }}"
+                    href="/workspace/tasks?status=cancelled{% if query_text %}&q={{ query_text }}{% endif %}">Отменённые</a>
+                {% elif section == 'issues' %}
+                    <a class="text-btn {{ 'active' if request.args.get('status') == 'open' else '' }}"
+                    href="/workspace/issues?status=open{% if query_text %}&q={{ query_text }}{% endif %}">Открытые</a>
+                    <a class="text-btn {{ 'active' if request.args.get('status') == 'resolved' else '' }}"
+                    href="/workspace/issues?status=resolved{% if query_text %}&q={{ query_text }}{% endif %}">Решённые</a>
+                    <a class="text-btn {{ 'active' if request.args.get('status') == 'closed' else '' }}"
+                    href="/workspace/issues?status=closed{% if query_text %}&q={{ query_text }}{% endif %}">Закрытые</a>
+                {% elif section == 'projects' %}
+                    <a class="text-btn {{ 'active' if request.args.get('status') == 'active' else '' }}"
+                    href="/workspace/projects?status=active{% if query_text %}&q={{ query_text }}{% endif %}">Активные</a>
+                    <a class="text-btn {{ 'active' if request.args.get('status') == 'completed' else '' }}"
+                    href="/workspace/projects?status=completed{% if query_text %}&q={{ query_text }}{% endif %}">Завершённые</a>
+                {% endif %}
+            </div>
+            {% endif %}
+
+            <div class="panel table-panel">
+                <div class="table-wrap">
+                    <table>
+                        {% set col_titles = {
+                        'name': 'Название', 'code': 'Код', 'status': 'Статус',
+                        'funding_source': 'Источник финансирования', 'participants': 'Участники',
+                        'title': 'Название', 'description': 'Описание', 'manager_id': 'Руководитель',
+                        'start_date': 'Дата начала', 'end_date': 'Дата окончания',
+                        'project_id': 'Проект', 'assignee_id': 'Исполнитель', 'deadline': 'Дедлайн',
+                        'priority': 'Приоритет', 'employee_id': 'Сотрудник', 'task_id': 'Задача',
+                        'work_date': 'Дата', 'duration_minutes': 'Длительность', 'duration_type': 'Точность',
+                        'source': 'Источник', 'confidence': 'Уверенность', 'source_reference': 'Ссылка на источник',
+                        'extraction_status': 'Статус', 'occurred_at': 'Дата и время', 'direction': 'Направление',
+                        'checkpoint': 'Точка прохода', 'external_id': 'Внешний ID', 'correction_type': 'Тип',
+                        'reason': 'Основание', 'decision_date': 'Дата', 'severity': 'Серьёзность',
+                        'responsible_id': 'Ответственный', 'created_at': 'Создано', 'result_date': 'Дата',
+                        'event_type': 'Тип события', 'event_date': 'Дата', 'started_at': 'Начало',
+                        'ended_at': 'Окончание', 'participant_names': 'Участники', 'sender_name': 'Автор',
+                        'message_date': 'Дата', 'text': 'Текст', 'reply_to_message_id': 'Ответ на',
+                        'media_type': 'Тип', 'transcript': 'Транскрипт', 'chat_id': 'Чат',
+                        'telegram_message_id': 'ID сообщения', 'username': 'Логин', 'full_name': 'ФИО',
+                        'position': 'Должность', 'work_rate': 'Ставка', 'department_id': 'Подразделение',
+                        'schedule_id': 'График', 'role': 'Роль', 'active': 'Активен',
+                        'telegram_link_code': 'Код привязки', 'workdays': 'Дни недели',
+                        'start_time': 'Начало', 'end_time': 'Окончание', 'tolerance_minutes': 'Допуск, мин',
+                        'break_minutes': 'Перерыв, мин', 'processed': 'Обработано'
+                    } %}
+                    <thead>
+                        <tr>
+                            {% for key in config.cols %}
+                            <th>{{ col_titles.get(key, key|replace('_',' ')|capitalize) }}</th>
+                            {% endfor %}
+                            <th>Действия</th>
+                        </tr>
+                    </thead>
+                        <tbody>
+                            {% for row in rows %}
+                            <tr>
+                                {% for key,val in row.cells %}
+                                <td>
+                                    {% if key == 'role' %}
+                                        {{ val|role_ru }}
+                                    {% elif key == 'work_rate' %}
+                                        {{ val|work_rate_ru }}
+                                    {% elif key == 'status' %}
+                                        {{ val|status_ru }}
+                                    {% elif key == 'priority' %}
+                                        {{ val|priority_ru }}
+                                    {% elif key == 'severity' %}
+                                        {{ val|severity_ru }}
+                                    {% elif key == 'source' %}
+                                        {{ val|source_ru }}
+                                    {% elif key == 'duration_type' %}
+                                        {{ val|duration_type_ru }}
+                                    {% elif key == 'direction' %}
+                                        {{ val|direction_ru }}
+                                    {% elif key == 'correction_type' %}
+                                        {{ val|correction_type_ru }}
+                                    {% elif key in ['text','description','summary','reason','title','name'] %}
+                                        <span class="cell-truncate" title="{{ val }}">{{ val }}</span>
+                                    {% else %}
+                                        {{ val }}
+                                    {% endif %}
+                                </td>
+                                {% endfor %}
+                                <td class="actions-cell">
+                                    <button class="small-action edit-btn"
+                                            type="button"
+                                            data-record-id="{{ row.id }}"
+                                            data-record='{{ row.edit_data|tojson|forceescape }}'>Изменить</button>
+                                    <form method="post" action="/workspace/{{ section }}/{{ row.id }}/delete"
+                                          onsubmit="return confirm('Удалить эту запись?')" style="display:inline">
+                                        <button class="small-action danger" type="submit">Удалить</button>
+                                    </form>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="{{ config.cols|length+1 }}" class="empty-table">
+                                    Пока нет записей. Нажми «Добавить», чтобы создать первую.
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="table-foot">
+                    Показано записей: {{ rows|length }}{% if rows|length==300 %} · отображены первые 300 результатов{% endif %}
+                </div>
+            </div>
+        </section>
+    </main>
+</div>
+
+<dialog id="editDialog" class="event-dialog">
+    <form id="recordForm" method="post" action="/workspace/{{ section }}/save">
+        <div class="dialog-head">
+            <div>
+                <p class="eyebrow">УПРАВЛЕНИЕ ДАННЫМИ</p>
+                <h2 id="recordDialogTitle">Новая запись</h2>
+            </div>
+            <button type="button" class="icon-btn" id="closeDialogBtn">×</button>
+        </div>
+        <input type="hidden" name="id" id="recordId">
+
+        <div class="generic-form-grid">
+            {% for key,label,kind,required in config.fields %}
+            <label>{{ label }}
+                {% if kind.startswith('choice:') %}
+                <select name="{{ key }}" id="f_{{ key }}" {% if required %}required{% endif %}>
+                    {% for opt in kind[7:].split(',') %}
+                    <option value="{{ opt }}">{{ {'true':'Да','false':'Нет','admin':'Администратор','employee':'Сотрудник','full':'Полная ставка','half':'Полставки','active':'Активен','paused':'Приостановлен','completed':'Завершён','cancelled':'Отменён','new':'Новая','planned':'Запланирована','in_progress':'В работе','blocked':'Заблокирована','review':'На проверке','low':'Низкий','normal':'Обычный','high':'Высокий','urgent':'Срочный','exact':'Точное','approximate':'Примерное','manual':'Вручную','telegram':'Telegram','task_system':'Система задач','external_system':'Внешняя система','confirmed':'Подтверждено','automatic':'Автоматически','requires_confirmation':'Требует подтверждения','rejected':'Отклонено','entry':'Вход','exit':'Выход','open':'Открыта','resolved':'Решена','closed':'Закрыта','critical':'Критическая','medium':'Средняя','remote_work':'Удалённая работа','business_trip':'Командировка','vacation':'Отпуск','sick_leave':'Больничный','other':'Другое','forgot_badge':'Забыл пропуск','wrong_event':'Неверная отметка СКУД','service_trip':'Служебный выезд','approved_absence':'Согласованное отсутствие'}.get(opt, opt|replace('_',' ')|capitalize) }}</option>
+                    {% endfor %}
+                </select>
+                {% elif kind in ['user','project','task','department','schedule'] %}
+                <select name="{{ key }}" id="f_{{ key }}" {% if required %}required{% endif %}>
+                    <option value="">— Не выбрано —</option>
+                    {% for opt in opts[kind] %}<option value="{{ opt.id }}">{{ opt.name }}</option>{% endfor %}
+                </select>
+                {% elif kind=='textarea' %}
+                <textarea name="{{ key }}" id="f_{{ key }}" rows="3" {% if required %}required{% endif %}></textarea>
+                {% else %}
+                <input name="{{ key }}" id="f_{{ key }}"
+                       type="{{ {'number':'number','decimal':'number','date':'date','datetime':'datetime-local'}.get(kind,'text') }}"
+                       {% if kind=='decimal' %}min="0" max="1" step="0.01"{% elif kind=='number' %}min="0" step="1"{% endif %}
+                       {% if required %}required{% endif %}>
+                {% endif %}
+            </label>
+            {% endfor %}
+
+            {% if section=='tasks' %}
+            <label>Дополнительные исполнители
+                <span class="optional">Удерживай Ctrl (Windows) или ⌘ Command (Mac)</span>
+                <select name="assignee_ids" id="f_assignee_ids" multiple size=5>
+                    {% for opt in opts['user'] %}<option value="{{ opt.id }}">{{ opt.name }}</option>{% endfor %}
+                </select>
+            </label>
+            {% endif %}
+
+            {% if section=='projects' %}
+            <label>Участники проекта
+                <select name="member_ids" id="f_member_ids" multiple size=5>
+                    {% for opt in opts['user'] %}<option value="{{ opt.id }}">{{ opt.name }}</option>{% endfor %}
+                </select>
+                <small class="muted">Можно выбрать несколько сотрудников.</small>
+            </label>
+            {% endif %}
+
+            {% if section=='users' %}
+            <label>Новый пароль
+                <input type="password" name="new_password" id="f_new_password" minlength="10" placeholder="Оставь пустым, чтобы не менять">
+            </label>
+            {% endif %}
+        </div>
+
+        <div class="dialog-actions">
+            <span class="spacer"></span>
+            <button type="button" class="secondary-btn" id="cancelDialogBtn">Отмена</button>
+            <button type="submit" class="primary-btn">Сохранить</button>
+        </div>
+    </form>
+</dialog>
+
+<script>
+(function () {
+    const dialog = document.getElementById('editDialog');
+    const form = document.getElementById('recordForm');
+    const title = document.getElementById('recordDialogTitle');
+    const idInput = document.getElementById('recordId');
+
+    function openNew() {
+        form.reset();
+        form.querySelectorAll('select[multiple] option').forEach(o => o.selected = false);
+        idInput.value = '';
+        title.textContent = 'Новая запись';
+        dialog.showModal();
+    }
+
+    function openEdit(id, data) {
+        idInput.value = id;
+        title.textContent = 'Редактировать запись';
+        for (const [key, value] of Object.entries(data)) {
+            const el = document.getElementById('f_' + key);
+            if (!el) continue;
+            let v = value;
+            if (el.type === 'datetime-local' && typeof v === 'string' && v.length >= 16) {
+                v = v.replace(' ', 'T').slice(0, 16);
+            }
+            if (el.type === 'date' && typeof v === 'string' && v.length > 10) {
+                v = v.slice(0, 10);
+            }
+            if (el.multiple && Array.isArray(v)) {
+                const set = new Set(v.map(String));
+                [...el.options].forEach(o => o.selected = set.has(o.value));
+            } else {
+                el.value = v == null ? '' : v;
+            }
+        }
+        dialog.showModal();
+    }
+
+    document.getElementById('addRecordBtn').addEventListener('click', openNew);
+    document.getElementById('closeDialogBtn').addEventListener('click', () => dialog.close());
+    document.getElementById('cancelDialogBtn').addEventListener('click', () => dialog.close());
+
+    document.querySelectorAll('.edit-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const id = btn.dataset.recordId;
+            let data = {};
+            try { data = JSON.parse(btn.dataset.record || '{}'); } catch (e) {}
+            openEdit(id, data);
+        });
+    });
+})();
+</script>
+{% endblock %}

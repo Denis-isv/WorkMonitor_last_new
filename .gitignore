@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual env
+.venv/
+venv/
+env/
+ENV/
+
+# .env — НЕ отправляем!
+.env
+.env.local
+
+# SQLite
+*.db
+*.sqlite
+instance/
+workmonitor.db
+
+# Uploads
+uploads/
+static/uploads/
+
+# Media
+media/
+telegram_media/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Логи
+*.log
+
+echo "instance/" >> .gitignore
+echo "*.oga" >> .gitignore

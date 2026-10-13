@@ -1,0 +1,153 @@
+{% extends 'base.html' %}
+{% block title %}Календарь — WorkMonitor{% endblock %}
+{% block body %}
+<div class="app-shell" id="app" data-user-id="{{ current_user.id }}">
+    {% include '_sidebar.html' %}
+    <main class="main-area">
+        <header class="topbar">
+            <div class="topbar-left">
+                <button class="icon-btn mobile-menu" id="mobileMenu">☰</button>
+                <h1>Календарь</h1>
+            </div>
+            <div class="profile">
+                <span class="profile-name">{{ current_user.full_name }}</span>
+                <span class="avatar">{{ current_user.full_name[:1]|upper }}</span>
+                <a class="logout-link" href="/logout" title="Выйти">↗</a>
+            </div>
+        </header>
+
+        <section class="toolbar">
+            <div class="month-navigation">
+                <button class="icon-btn" id="prevMonth" aria-label="Предыдущий период">‹</button>
+                <strong id="monthTitle">Октябрь 2026</strong>
+                <button class="icon-btn" id="nextMonth" aria-label="Следующий период">›</button>
+                <button class="today-btn" id="todayBtn">Сегодня</button>
+            </div>
+            <div class="view-switch" role="group" aria-label="Вид календаря">
+                <button class="selected" data-view="month">Месяц</button>
+                <button data-view="week">Неделя</button>
+                <button data-view="day">День</button>
+            </div>
+            <div class="toolbar-filters">
+                <label class="filter-select">
+                    События
+                    <select id="categoryFilter" aria-label="Фильтр событий">
+                        <option value="all">Все события</option>
+                        <option value="work">Работа</option>
+                        <option value="vacation">Отпуск</option>
+                        <option value="sick_leave">Больничный</option>
+                        <option value="day_off">Выходной</option>
+                    </select>
+                </label>
+                <button class="primary-btn add-event" id="addEventBtn">＋ <span>Добавить</span></button>
+            </div>
+        </section>
+
+        <div class="content-layout">
+            <section class="calendar-section">
+                <div class="weekday-row">
+                    <span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span>
+                    <span>Пт</span><span>Сб</span><span>Вс</span>
+                </div>
+                <div id="calendarGrid" class="calendar-grid" aria-live="polite"></div>
+            </section>
+
+            <aside class="right-panel">
+                <div class="mini-calendar-card">
+                    <div class="mini-head">
+                        <strong id="miniMonthTitle">Октябрь 2026</strong>
+                        <div>
+                            <button class="icon-btn" id="miniPrev">‹</button>
+                            <button class="icon-btn" id="miniNext">›</button>
+                        </div>
+                    </div>
+                    <div class="mini-weekdays">
+                        <span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span>
+                        <span>Пт</span><span>Сб</span><span>Вс</span>
+                    </div>
+                    <div id="miniGrid" class="mini-grid"></div>
+                </div>
+
+                <div class="day-detail">
+                    <div class="detail-heading">
+                        <div>
+                            <h2 id="selectedDateTitle">Выбери дату</h2>
+                            <p id="selectedWeekday" class="muted"></p>
+                        </div>
+                        <span id="eventCount" class="count-pill">0 событий</span>
+                    </div>
+                    <div id="dayEvents" class="day-events"></div>
+                    <div id="emptyState" class="empty-state">
+                        <div class="empty-illustration">
+                            <span class="orbit orbit-one"></span>
+                            <span class="orbit orbit-two"></span>
+                            <div class="calendar-illustration">
+                                <span></span><span></span><span></span>
+                                <span></span><span></span><span></span>
+                                <span></span><span></span><span></span>
+                            </div>
+                        </div>
+                        <strong>Событий пока нет</strong>
+                        <p>Добавь рабочее событие, отпуск, больничный или выходной</p>
+                        <button class="text-btn" id="emptyAddBtn">＋ Добавить событие</button>
+                    </div>
+                </div>
+            </aside>
+        </div>
+    </main>
+</div>
+
+<dialog id="eventDialog" class="event-dialog">
+    <form id="eventForm">
+        <div class="dialog-head">
+            <div>
+                <p class="eyebrow">ПЛАНИРОВАНИЕ</p>
+                <h2 id="dialogTitle">Новое событие</h2>
+            </div>
+            <button type="button" class="icon-btn" id="closeDialog" aria-label="Закрыть">×</button>
+        </div>
+        <input type="hidden" id="eventId">
+        <label>Название события
+            <input id="eventTitle" maxlength="180" required placeholder="Например, работа над проектом">
+        </label>
+        <div class="form-row">
+            <label>Начало<input id="eventStart" type="datetime-local" required></label>
+            <label>Окончание<input id="eventEnd" type="datetime-local" required></label>
+        </div>
+        <div class="form-row">
+            <label>Тип активности
+                <select id="eventCategory">
+                    <option value="work">Работа</option>
+                    <option value="vacation">Отпуск</option>
+                    <option value="sick_leave">Больничный</option>
+                    <option value="day_off">Выходной</option>
+                </select>
+            </label>
+            <label>Статус
+                <select id="eventStatus">
+                    <option value="planned">Запланировано</option>
+                    <option value="in_progress">В процессе</option>
+                    <option value="completed">Выполнено</option>
+                    <option value="cancelled">Отменено</option>
+                </select>
+            </label>
+        </div>
+        {% if current_user.role == 'admin' %}
+        <label>Сотрудник
+            <select id="eventUser">
+                {% for user in users %}<option value="{{ user.id }}">{{ user.full_name }}</option>{% endfor %}
+            </select>
+        </label>
+        {% endif %}
+        <label>Описание <span class="optional">необязательно</span>
+            <textarea id="eventDescription" rows="3" placeholder="Добавь детали или ссылку на встречу"></textarea>
+        </label>
+        <div class="dialog-actions">
+            <button type="button" class="danger-text" id="deleteEventBtn" hidden>Удалить</button>
+            <span class="spacer"></span>
+            <button type="button" class="secondary-btn" id="cancelDialog">Отмена</button>
+            <button type="submit" class="primary-btn">Сохранить</button>
+        </div>
+    </form>
+</dialog>
+{% endblock %}

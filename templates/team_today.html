@@ -1,0 +1,67 @@
+{% extends 'base.html' %}
+{% block title %}Кто работает сегодня — WorkMonitor{% endblock %}
+{% block body %}
+<div class="app-shell">
+    {% include '_sidebar.html' %}
+    <main class="main-area">
+        <header class="topbar">
+            <div class="topbar-left">
+                <button class="icon-btn mobile-menu">☰</button>
+                <h1>Кто работает сегодня</h1>
+            </div>
+            <div class="profile">
+                <span class="profile-name">{{ current_user.full_name }}</span>
+                <span class="avatar">{{ current_user.full_name[:1]|upper }}</span>
+                <a class="logout-link" href="/logout" title="Выйти">↗</a>
+            </div>
+        </header>
+
+        <section class="page-content">
+            {% with messages=get_flashed_messages(with_categories=true) %}
+            {% for category,message in messages %}
+            <div class="flash-message {{ category }}">{{ message }}</div>
+            {% endfor %}
+            {% endwith %}
+
+            <div class="page-intro">
+                <div>
+                    <p class="eyebrow">КОМАНДА</p>
+                    <h2>Кто работает сегодня</h2>
+                    <p class="muted">{{ day.strftime('%d.%m.%Y') }} · актуальный график и согласованные отсутствия</p>
+                </div>
+                <a class="primary-btn" href="/week">Расписание недели →</a>
+            </div>
+
+            <div class="panel">
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Сотрудник</th>
+                                <th>Подразделение</th>
+                                <th>Статус на сегодня</th>
+                                <th>Примечание</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in rows %}
+                            <tr>
+                                <td>
+                                    <strong>{{ row.user.full_name }}</strong>
+                                    <div class="muted">{{ row.user.position or 'Сотрудник' }}</div>
+                                </td>
+                                <td>{{ row.user.department.name if row.user.department else '—' }}</td>
+                                <td><span class="status-pill">{{ row.status }}</span></td>
+                                <td>{{ row.absence.reason if row.absence else (row.schedule.note if row.schedule else 'График пока не заполнен') }}</td>
+                            </tr>
+                            {% else %}
+                            <tr><td colspan="4" class="empty-table">Сотрудников пока нет.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </main>
+</div>
+{% endblock %}

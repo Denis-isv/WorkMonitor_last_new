@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+    <title>{% block title %}WorkMonitor{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+    <script defer src="{{ url_for('static', filename='js/calendar.js') }}"></script>
+</head>
+<body>
+    {% block body %}{% endblock %}
+    <div id="toast" class="toast" role="status"></div>
+
+    <!-- Затемнение при открытом сайдбаре на мобильном -->
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+    <script>
+    (function () {
+        const KEY = 'wm-sidebar-width';
+        const MIN = 78;
+        const MAX = 320;
+        const COLLAPSE_THRESHOLD = 150;
+        const DEFAULT_WIDTH = 240;
+        const MOBILE_BREAKPOINT = 768;
+
+        function isMobile() {
+            return window.innerWidth <= MOBILE_BREAKPOINT;
+        }
+
+        // Применяем ширину ДО отрисовки, чтобы не было «дёргания»
+        try {
+            const saved = parseInt(localStorage.getItem(KEY) || String(DEFAULT_WIDTH), 10);
+            if (!isMobile()) {
+                document.querySelectorAll('.sidebar.expandable-sidebar').forEach(s => {
+                    const w = Math.max(MIN, Math.min(MAX, saved));
+                    s.style.width = w + 'px';
+                    s.style.flexBasis = w + 'px';
+                    if (w < COLLAPSE_THRESHOLD) s.classList.add('collapsed');
+                });
+            }
+        } catch (e) {}
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const overlay = document.getElementById('sidebar-overlay');
+
+            document.querySelectorAll('.sidebar.expandable-sidebar').forEach(sidebar => {
+                // === Подсветка активного пункта ===
+                const path = location.pathname;
+                const map = [
+                    { nav: 'dashboard',   match: p => p === '/' || p.startsWith('/dashboard') },
+                    { nav: 'calendar',    match: p => p.startsWith('/calendar') },
+                    { nav: 'today',       match: p => p.startsWith('/today') },
+                    { nav: 'week',        match: p => p.startsWith('/week') },
+                    { nav: 'month',       match: p => p.startsWith('/month') || p.startsWith('/reports') },
+                    { nav: 'leave',       match: p => p.startsWith('/leave') },
+                    { nav: 'schedule',    match: p => p === '/schedule' },
+                    { nav: 'departments', match: p => p.startsWith('/workspace/departments') },
+                    { nav: 'employees',   match: p => p.startsWith('/employees') || p.startsWith('/workspace/users') || p.startsWith('/workspace/schedules') },
+                    { nav: 'projects',    match: p => p.startsWith('/workspace/projects') },
+                    { nav: 'tasks',       match: p => p.startsWith('/workspace/tasks') },
+                    { nav: 'issues',      match: p => p.startsWith('/workspace/issues') },
+                ];
+                let activeNav = null;
+                for (const m of map) { if (m.match(path)) { activeNav = m.nav; break; } }
+                sidebar.querySelectorAll('.nav-item').forEach(a => {
+                    if (a.dataset.nav === activeNav) {
+                        a.classList.add('active');
+                        a.setAttribute('aria-current', 'page');
+                    } else {
+                        a.classList.remove('active');
+                        a.removeAttribute('aria-current');
+                    }
+                });
+
+                // === Восстановление ширины (десктоп) ===
+                const saved = parseInt(localStorage.getItem(KEY) || String(DEFAULT_WIDTH), 10);
+                if (!isMobile()) applyWidth(saved, false);
+
+                function applyWidth(w, persist) {
+                    if (isMobile()) return;
+                    w = Math.max(MIN, Math.min(MAX, w));
+                    sidebar.style.transition = 'none';
+                    sidebar.style.width = w + 'px';
+                    sidebar.style.flexBasis = w + 'px';
+                    sidebar.classList.toggle('collapsed', w < COLLAPSE_THRESHOLD);
+                    requestAnimationFrame(() => { sidebar.style.transition = ''; });
+                    if (persist !== false) localStorage.setItem(KEY, String(w));
+                }
+
+                // === Логотип W: на десктопе — сворачивает, на мобилке — закрывает ===
+                const logo = sidebar.querySelector('.logo');
+                if (logo) {
+                    logo.addEventListener('click', e => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (isMobile()) {
+                            // На мобилке W просто закрывает сайдбар
+                            closeSidebar(sidebar);
+                        } else {
+                            const cur = sidebar.getBoundingClientRect().width;
+                            applyWidth(cur < COLLAPSE_THRESHOLD ? DEFAULT_WIDTH : MIN);
+                        }
+                    });
+                }
+
+                // === Ручка перетаскивания (только десктоп) ===
+                const handle = sidebar.querySelector('.sidebar-resize');
+                if (handle) {
+                    handle.addEventListener('pointerdown', e => {
+                        if (isMobile()) return;
+                        e.preventDefault();
+                        const startX = e.clientX;
+                        const startW = sidebar.getBoundingClientRect().width;
+                        sidebar.classList.add('resizing');
+                        handle.setPointerCapture(e.pointerId);
+                        const onMove = ev => applyWidth(startW + ev.clientX - startX, false);
+                        const onUp = () => {
+                            sidebar.classList.remove('resizing');
+                            applyWidth(sidebar.getBoundingClientRect().width);
+                            handle.removeEventListener('pointermove', onMove);
+                            handle.removeEventListener('pointerup', onUp);
+                        };
+                        handle.addEventListener('pointermove', onMove);
+                        handle.addEventListener('pointerup', onUp);
+                    });
+                }
+
+                // === Гамбургер (mobile-menu) ===
+                const burger = document.querySelector('.mobile-menu');
+                if (burger) {
+                    burger.addEventListener('click', e => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (sidebar.classList.contains('open')) {
+                            closeSidebar(sidebar);
+                        } else {
+                            openSidebar(sidebar);
+                        }
+                    });
+                }
+
+                // === Клик по ссылке — закрываем сайдбар на мобилке ===
+                sidebar.querySelectorAll('.nav-item').forEach(a => {
+                    a.addEventListener('click', () => {
+                        if (isMobile()) closeSidebar(sidebar);
+                    });
+                });
+
+                function openSidebar(sb) {
+                    sb.classList.add('open');
+                    document.body.classList.add('sidebar-open');
+                    if (overlay) overlay.classList.add('show');
+                }
+
+                function closeSidebar(sb) {
+                    sb.classList.remove('open');
+                    document.body.classList.remove('sidebar-open');
+                    if (overlay) overlay.classList.remove('show');
+                }
+            });
+
+            // Клик по затемнению — закрыть сайдбар
+            if (overlay) {
+                overlay.addEventListener('click', () => {
+                    document.querySelectorAll('.sidebar.expandable-sidebar').forEach(s => {
+                        s.classList.remove('open');
+                    });
+                    document.body.classList.remove('sidebar-open');
+                    overlay.classList.remove('show');
+                });
+            }
+
+            // Esc — закрыть сайдбар
+            document.addEventListener('keydown', e => {
+                if (e.key === 'Escape' && isMobile()) {
+                    document.querySelectorAll('.sidebar.expandable-sidebar').forEach(s => s.classList.remove('open'));
+                    document.body.classList.remove('sidebar-open');
+                    if (overlay) overlay.classList.remove('show');
+                }
+            });
+
+            // При повороте телефона/ресайзе — сбросить мобильные стили
+            let resizeTimer;
+            window.addEventListener('resize', () => {
+                clearTimeout(resizeTimer);
+                resizeTimer = setTimeout(() => {
+                    if (!isMobile()) {
+                        document.querySelectorAll('.sidebar.expandable-sidebar').forEach(s => {
+                            s.classList.remove('open');
+                            s.style.transform = '';
+                        });
+                        document.body.classList.remove('sidebar-open');
+                        if (overlay) overlay.classList.remove('show');
+                    }
+                }, 150);
+            });
+        });
+    })();
+    </script>
+</body>
+</html>

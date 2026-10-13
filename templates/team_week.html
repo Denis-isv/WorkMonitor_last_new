@@ -1,0 +1,82 @@
+{% extends 'base.html' %}
+{% block title %}Расписание недели — WorkMonitor{% endblock %}
+{% block body %}
+<div class="app-shell">
+    {% include '_sidebar.html' %}
+    <main class="main-area">
+        <header class="topbar">
+            <div class="topbar-left">
+                <button class="icon-btn mobile-menu">☰</button>
+                <h1>Расписание недели</h1>
+            </div>
+            <div class="profile">
+                <span class="profile-name">{{ current_user.full_name }}</span>
+                <span class="avatar">{{ current_user.full_name[:1]|upper }}</span>
+                <a class="logout-link" href="/logout" title="Выйти">↗</a>
+            </div>
+        </header>
+
+        <section class="page-content">
+            {% with messages=get_flashed_messages(with_categories=true) %}
+            {% for category,message in messages %}
+            <div class="flash-message {{ category }}">{{ message }}</div>
+            {% endfor %}
+            {% endwith %}
+
+            <div class="page-intro">
+                <div>
+                    <p class="eyebrow">ОБЩИЙ ГРАФИК</p>
+                    <h2>Расписание недели</h2>
+                    <p class="muted">Все сотрудники и все дни недели в одной таблице.</p>
+                </div>
+                <a class="primary-btn" href="/schedule">Настроить мой график →</a>
+            </div>
+
+            <div class="month-nav-clean compact">
+                <a class="month-nav-btn" href="/week?start={{ prev.isoformat() }}" title="Предыдущая неделя">
+                    <span>‹</span>
+                </a>
+                <div class="month-nav-title">
+                    <span class="month-nav-eyebrow">РАСПИСАНИЕ НЕДЕЛИ</span>
+                    <strong>{{ days[0].strftime('%d.%m.%Y') }} — {{ days[-1].strftime('%d.%m.%Y') }}</strong>
+                    <a class="month-nav-today" href="/week">Текущая неделя</a>
+                </div>
+                <a class="month-nav-btn" href="/week?start={{ nxt.isoformat() }}" title="Следующая неделя">
+                    <span>›</span>
+                </a>
+            </div>
+
+            <div class="panel">
+                <div class="table-wrap">
+                    <table class="schedule-table">
+                        <thead>
+                            <tr>
+                                <th>Сотрудник</th>
+                                {% for d in days %}
+                                <th>{{ ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'][d.weekday()] }}<br>{{ d.strftime('%d.%m') }}</th>
+                                {% endfor %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for u in users %}
+                            <tr>
+                                <td>
+                                    <strong>{{ u.full_name }}</strong>
+                                    <div class="muted">{{ 'Полная ставка' if u.work_rate=='full' else 'Полставки' }}</div>
+                                </td>
+                                {% for d in days %}
+                                {% set v=state(u,d) %}
+                                <td>
+                                    <span class="schedule-cell {{ 'off' if v in ('Выходной','Отпуск','Больничный') else '' }}">{{ v }}</span>
+                                </td>
+                                {% endfor %}
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </main>
+</div>
+{% endblock %}

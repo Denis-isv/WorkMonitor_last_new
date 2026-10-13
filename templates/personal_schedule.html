@@ -1,0 +1,96 @@
+{% extends 'base.html' %}
+{% block title %}Мой график — WorkMonitor{% endblock %}
+{% block body %}
+<div class="app-shell">
+    {% include '_sidebar.html' %}
+    <main class="main-area">
+        <header class="topbar">
+            <div class="topbar-left">
+                <button class="icon-btn mobile-menu" id="mobileMenu">☰</button>
+                <h1>Мой график</h1>
+            </div>
+            <div class="profile">
+                <span class="profile-name">{{ current_user.full_name }}</span>
+                <span class="avatar">{{ current_user.full_name[:1]|upper }}</span>
+                <a class="logout-link" href="/logout">↗</a>
+            </div>
+        </header>
+
+        <section class="page-content">
+            {% with messages=get_flashed_messages(with_categories=true) %}
+            {% for category,message in messages %}
+            <div class="flash-message {{ category }}">{{ message }}</div>
+            {% endfor %}
+            {% endwith %}
+
+            <div class="page-intro">
+                <div>
+                    <p class="eyebrow">МОЙ ГРАФИК</p>
+                    <h2>Ближайшие 14 дней</h2>
+                    <p class="muted">Заполни план, факт и эффективность. Изменения сразу видны в Telegram-боте.</p>
+                </div>
+                <a class="primary-btn" href="/week">График команды →</a>
+            </div>
+
+            <div class="schedule-grid">
+                {% for d in days %}
+                {% set x = by_date.get(d) %}
+                {% set is_weekend = d.weekday() >= 5 %}
+                {% set is_today = d == now_date if now_date is defined else false %}
+                <form class="schedule-card {{ 'is-weekend' if is_weekend else '' }} {{ 'is-today' if is_today else '' }}"
+                      method="post" id="form-{{ d.isoformat() }}">
+                    <input type="hidden" name="work_date" value="{{ d.isoformat() }}">
+
+                    <div class="schedule-card-head">
+                        <div>
+                            <span class="schedule-weekday">{{ ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'][d.weekday()] }}</span>
+                            <strong>{{ d.strftime('%d.%m.%Y') }}</strong>
+                        </div>
+                        <label class="schedule-dayoff">
+                            <input type="checkbox" name="is_day_off" {% if x and x.is_day_off %}checked{% endif %}>
+                            <span>Выходной</span>
+                        </label>
+                    </div>
+
+                    <div class="schedule-row">
+                        <label>
+                            <span class="schedule-label">🕐 План — с</span>
+                            <input type="time" name="start_time" value="{{ x.start_time if x else '09:00' }}">
+                        </label>
+                        <label>
+                            <span class="schedule-label">до</span>
+                            <input type="time" name="end_time" value="{{ x.end_time if x else '18:00' }}">
+                        </label>
+                    </div>
+
+                    <div class="schedule-row">
+                        <label>
+                            <span class="schedule-label">✅ Факт — с</span>
+                            <input type="time" name="actual_start" value="{{ x.actual_start if x and x.actual_start else '' }}">
+                        </label>
+                        <label>
+                            <span class="schedule-label">до</span>
+                            <input type="time" name="actual_end" value="{{ x.actual_end if x and x.actual_end else '' }}">
+                        </label>
+                    </div>
+
+                    <div class="schedule-row">
+                        <label>
+                            <span class="schedule-label">📈 Эффективность, %</span>
+                            <input type="number" name="efficiency" min="0" max="100" step="1"
+                                   value="{{ (x.efficiency * 100)|int if x and x.efficiency else 100 }}">
+                        </label>
+                        <label>
+                            <span class="schedule-label">📝 Заметка</span>
+                            <input type="text" name="note" value="{{ x.note if x else '' }}" placeholder="Удалённо, офис...">
+                        </label>
+                    </div>
+
+                    <button type="submit" class="primary-btn schedule-save">Сохранить</button>
+                </form>
+                {% endfor %}
+            </div>
+        </section>
+    </main>
+</div>
+{% endblock %}

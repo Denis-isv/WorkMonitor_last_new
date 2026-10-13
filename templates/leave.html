@@ -1,0 +1,164 @@
+{% extends 'base.html' %}
+{% block title %}Отпуск и больничный — WorkMonitor{% endblock %}
+{% block body %}
+<div class="app-shell">
+    {% include '_sidebar.html' %}
+    <main class="main-area">
+        <header class="topbar">
+            <div class="topbar-left">
+                <button class="icon-btn mobile-menu">☰</button>
+                <h1>Отпуск и больничный</h1>
+            </div>
+            <div class="profile">
+                <span class="profile-name">{{ current_user.full_name }}</span>
+                <span class="avatar">{{ current_user.full_name[:1]|upper }}</span>
+                <a class="logout-link" href="/logout" title="Выйти">↗</a>
+            </div>
+        </header>
+
+        <section class="page-content">
+            {% with messages=get_flashed_messages(with_categories=true) %}
+            {% for category,message in messages %}
+            <div class="flash-message {{ category }}">{{ message }}</div>
+            {% endfor %}
+            {% endwith %}
+
+            <div class="page-intro">
+                <div>
+                    <p class="eyebrow">ОТСУТСТВИЯ</p>
+                    <h2>Отпуск, больничный и выходные</h2>
+                    <p class="muted">Сотрудник создаёт заявку, администратор согласует или отклоняет её.</p>
+                </div>
+            </div>
+
+            <div class="leave-layout">
+                <section class="panel">
+                    <div class="panel-head">
+                        <div>
+                            <h3>Новая заявка</h3>
+                            <p class="muted">Заполни даты и выбери тип отсутствия.</p>
+                        </div>
+                    </div>
+                    <form class="leave-form" method="post" enctype="multipart/form-data">
+                        <div class="leave-form-grid">
+                            <label>Тип
+                                <select name="absence_type" required>
+                                    <option value="vacation">🏖 Отпуск</option>
+                                    <option value="sick_leave">🤒 Больничный</option>
+                                    <option value="day_off">📅 Выходной</option>
+                                </select>
+                            </label>
+                            <label>Дата начала
+                                <input type="date" name="date_start" required>
+                            </label>
+                            <label>Дата окончания
+                                <input type="date" name="date_end" id="dateEndField">
+                                <small class="muted" id="dateEndHint" style="display:none">
+                                    Можно оставить пустым — для больничного без известной даты окончания
+                                </small>
+                            </label>
+                            {% if current_user.role=='admin' %}
+                            <label>Сотрудник
+                                <select name="user_id" required>
+                                    {% for u in users %}<option value="{{ u.id }}">{{ u.full_name }}</option>{% endfor %}
+                                </select>
+                            </label>
+                            {% endif %}
+                        </div>
+                        <label class="field-wide">Прикрепить документ или справку
+                            <span class="optional">PDF, JPG, PNG, DOCX до 12 МБ</span>
+                            <input type="file" name="attachment" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx">
+                        </label>
+                        <label class="field-wide">Комментарий
+                            <textarea name="reason" rows="3" placeholder="Необязательно"></textarea>
+                        </label>
+                        <button class="primary-btn" type="submit">Отправить заявку</button>
+                    </form>
+                </section>
+
+                <section class="panel">
+                    <div class="panel-head">
+                        <div>
+                            <h3>Заявки</h3>
+                            <p class="muted">История и статусы согласования</p>
+                        </div>
+                    </div>
+                    <div class="leave-list">
+                        {% for r in requests %}
+                        <article class="leave-card {{ r.status }}">
+                            <div class="leave-card-head">
+                                <div class="leave-card-title">
+                                    <span class="leave-card-icon">
+                                        {% if r.absence_type == 'vacation' %}🏖
+                                        {% elif r.absence_type == 'sick_leave' %}🤒
+                                        {% else %}📅{% endif %}
+                                    </span>
+                                    <div>
+                                        <strong>{{ r.employee.full_name }}</strong>
+                                        <span class="leave-card-type">
+                                            {{ {'vacation':'Отпуск','sick_leave':'Больничный','day_off':'Выходной'}.get(r.absence_type, r.absence_type) }}
+                                        </span>
+                                    </div>
+                                </div>
+                                <span class="status-pill {{ r.status }}">
+                                    {{ {'pending':'⏳ На согласовании','approved':'✅ Согласовано','rejected':'❌ Отклонено'}.get(r.status, r.status) }}
+                                </span>
+                            </div>
+
+                            <div class="leave-card-dates">
+                                📅 <strong>{{ r.date_start.strftime('%d.%m.%Y') }}</strong>
+                                {% if r.date_end %}
+                                    {% if r.date_end != r.date_start %}
+                                    <span class="arrow">→</span> <strong>{{ r.date_end.strftime('%d.%m.%Y') }}</strong>
+                                    {% endif %}
+                                    {% set days = (r.date_end - r.date_start).days + 1 %}
+                                    <span class="days-badge">{{ days }} {{ 'день' if days == 1 else ('дня' if days < 5 else 'дней') }}</span>
+                                {% else %}
+                                    <span class="days-badge">до выздоровления</span>
+                                {% endif %}
+                            </div>
+
+                            {% if r.reason %}
+                            <div class="leave-card-reason">💬 {{ r.reason }}</div>
+                            {% endif %}
+
+                            {% if r.attachment_path %}
+                            <div class="leave-card-attachment">
+                                <a href="/leave/{{ r.id }}/attachment">📎 {{ r.attachment_name or 'Скачать вложение' }}</a>
+                            </div>
+                            {% endif %}
+
+                            {% if current_user.role=='admin' and r.status=='pending' %}
+                            <div class="leave-card-actions">
+                                <form method="post" action="/leave/{{ r.id }}/review" style="display:contents">
+                                    <button name="action" value="approved" class="primary-btn small">✅ Согласовать</button>
+                                    <button name="action" value="rejected" class="secondary-btn small danger">❌ Отклонить</button>
+                                </form>
+                            </div>
+                            {% endif %}
+                        </article>
+                        {% else %}
+                        <div class="empty-panel">Заявок пока нет.</div>
+                        {% endfor %}
+                    </div>
+                </section>
+            </div>
+        </section>
+    </main>
+</div>
+<script>
+(function() {
+    const typeSelect = document.querySelector('select[name="absence_type"]');
+    const endField = document.getElementById('dateEndField');
+    const hint = document.getElementById('dateEndHint');
+    if (!typeSelect || !endField) return;
+    function update() {
+        const isSick = typeSelect.value === 'sick_leave';
+        endField.required = !isSick;
+        hint.style.display = isSick ? 'block' : 'none';
+    }
+    typeSelect.addEventListener('change', update);
+    update();
+})();
+</script>
+{% endblock %}

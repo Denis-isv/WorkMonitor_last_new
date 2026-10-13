@@ -1,0 +1,45 @@
+<aside class="sidebar expandable-sidebar">
+    <a class="logo" href="/dashboard" title="Свернуть/развернуть">W</a>
+    <nav class="side-nav">
+        <a href="/dashboard" class="nav-item" data-nav="dashboard" title="Главная">
+            <span class="nav-ico">⌂</span><span class="nav-label">Главная</span>
+        </a>
+        <a href="/calendar" class="nav-item" data-nav="calendar" title="Календарь">
+            <span class="nav-ico">▦</span><span class="nav-label">Календарь</span>
+        </a>
+        <a href="/today" class="nav-item" data-nav="today" title="Кто работает сегодня">
+            <span class="nav-ico">☀</span><span class="nav-label">Кто работает сегодня</span>
+        </a>
+        <a href="/week" class="nav-item" data-nav="week" title="Расписание недели">
+            <span class="nav-ico">▦</span><span class="nav-label">Расписание недели</span>
+        </a>
+        <a href="/month" class="nav-item" data-nav="month" title="Итоги месяца">
+            <span class="nav-ico">▤</span><span class="nav-label">Итоги месяца</span>
+        </a>
+        <a href="/leave" class="nav-item" data-nav="leave" title="Отпуск и больничный">
+            <span class="nav-ico">♡</span><span class="nav-label">Отпуск и больничный</span>
+        </a>
+        <a href="/schedule" class="nav-item" data-nav="schedule" title="Мой график">
+            <span class="nav-ico">◷</span><span class="nav-label">Мой график</span>
+        </a>
+        <a href="/workspace/departments" class="nav-item" data-nav="departments" title="Подразделения">
+            <span class="nav-ico">▥</span><span class="nav-label">Подразделения</span>
+        </a>
+        <a href="/employees" class="nav-item" data-nav="employees" title="Сотрудники">
+            <span class="nav-ico">♙</span><span class="nav-label">Сотрудники</span>
+        </a>
+        <a href="/workspace/projects" class="nav-item" data-nav="projects" title="Проекты">
+            <span class="nav-ico">▤</span><span class="nav-label">Проекты</span>
+        </a>
+        <a href="/workspace/tasks" class="nav-item" data-nav="tasks" title="Задачи">
+            <span class="nav-ico">✓</span><span class="nav-label">Задачи</span>
+        </a>
+        <a href="/workspace/issues" class="nav-item" data-nav="issues" title="Проблемы">
+            <span class="nav-ico">!</span><span class="nav-label">Проблемы</span>
+        </a>
+    </nav>
+    <div class="sidebar-bottom">
+        <span class="avatar small">{{ current_user.full_name[:1]|upper }}</span>
+    </div>
+    <div class="sidebar-resize" title="Потяни, чтобы изменить ширину"></div>
+</aside>

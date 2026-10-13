@@ -1,0 +1,83 @@
+{% extends 'base.html' %}
+{% block title %}Итоги месяца — WorkMonitor{% endblock %}
+{% block body %}
+<div class="app-shell">
+    {% include '_sidebar.html' %}
+    <main class="main-area">
+        <header class="topbar">
+            <div class="topbar-left">
+                <button class="icon-btn mobile-menu">☰</button>
+                <h1>Итоги месяца</h1>
+            </div>
+            <div class="profile">
+                <span class="profile-name">{{ current_user.full_name }}</span>
+                <span class="avatar">{{ current_user.full_name[:1]|upper }}</span>
+                <a class="logout-link" href="/logout" title="Выйти">↗</a>
+            </div>
+        </header>
+
+        <section class="page-content">
+            {% with messages=get_flashed_messages(with_categories=true) %}
+            {% for category,message in messages %}
+            <div class="flash-message {{ category }}">{{ message }}</div>
+            {% endfor %}
+            {% endwith %}
+
+            <div class="page-intro">
+                <div>
+                    <p class="eyebrow">МЕСЯЧНАЯ СВОДКА</p>
+                    <h2>Итоги: {{ month_name }} {{ year }}</h2>
+                    <p class="muted">Сводка доступна для просмотра по каждому сотруднику.</p>
+                </div>
+                <a class="primary-btn" href="/calendar">Открыть календарь →</a>
+            </div>
+
+            <div class="month-nav-clean">
+                <a class="month-nav-btn" href="/month?year={{ prev.year }}&month={{ prev.month }}" title="Предыдущий месяц">
+                    <span>‹</span>
+                </a>
+                <div class="month-nav-title">
+                    <span class="month-nav-eyebrow">МЕСЯЧНАЯ СВОДКА</span>
+                    <strong>{{ month_name }} {{ year }}</strong>
+                    <a class="month-nav-today" href="/month">Текущий месяц</a>
+                </div>
+                <a class="month-nav-btn" href="/month?year={{ nxt.year }}&month={{ nxt.month }}" title="Следующий месяц">
+                    <span>›</span>
+                </a>
+            </div>
+
+            <div class="panel">
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Сотрудник</th>
+                                <th>Ставка</th>
+                                <th>Рабочих дней по графику</th>
+                                <th>Часов по графику</th>
+                                <th>Дней отпуска</th>
+                                <th>Дней больничного</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for r in rows %}
+                            <tr>
+                                <td>
+                                    <strong>{{ r.user.full_name }}</strong>
+                                    <div class="muted">{{ r.user.department.name if r.user.department else '' }}</div>
+                                </td>
+                                <td>{{ 'Полная' if r.user.work_rate=='full' else 'Половина' }}</td>
+                                <td>{{ r.days }}</td>
+                                <td>{{ '%.1f'|format(r.hours) }}</td>
+                                <td>{{ r.vacation }}</td>
+                                <td>{{ r.sick }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </main>
+</div>
+{% endblock %}

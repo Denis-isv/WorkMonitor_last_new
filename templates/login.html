@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+{% block title %}Вход — WorkMonitor{% endblock %}
+{% block body %}
+<main class="login-page">
+    <section class="login-card">
+        <p class="eyebrow">WORKSPACE MANAGEMENT</p>
+        <h1>С возвращением</h1>
+        <p class="muted">Войди в WorkMonitor, чтобы продолжить работу.</p>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category,message in messages %}
+        <div class="alert">{{ message }}</div>
+        {% endfor %}
+        {% endwith %}
+
+        <form method="post" class="login-form">
+            <label>Логин
+                <input name="username" autocomplete="username" required autofocus placeholder="Введите логин">
+            </label>
+            <label>Пароль
+                <input type="password" name="password" autocomplete="current-password" required placeholder="Введите пароль">
+            </label>
+            <button class="primary-btn full" type="submit">Войти в систему <span>→</span></button>
+        </form>
+
+        <p class="tiny muted">Защищённое рабочее пространство</p>
+    </section>
+</main>
+{% endblock %}

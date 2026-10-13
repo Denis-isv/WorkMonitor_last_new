@@ -1,0 +1,113 @@
+{% extends 'base.html' %}
+{% block title %}Главная — WorkMonitor{% endblock %}
+{% block body %}
+<div class="app-shell">
+    {% include '_sidebar.html' %}
+    <main class="main-area">
+        <header class="topbar">
+            <div class="topbar-left">
+                <button class="icon-btn mobile-menu">☰</button>
+                <h1>Главная</h1>
+            </div>
+            <div class="profile">
+                <span class="profile-name">{{ current_user.full_name }}</span>
+                <span class="avatar">{{ current_user.full_name[:1]|upper }}</span>
+                <a class="logout-link" href="/logout" title="Выйти">↗</a>
+            </div>
+        </header>
+
+        <section class="page-content">
+            <div class="page-intro">
+                <div>
+                    <p class="eyebrow">УПРАВЛЕНИЕ РАБОЧИМ ПРОЦЕССОМ</p>
+                    <h2>Сводка за {{ today.strftime('%d.%m.%Y') }}</h2>
+                    <p class="muted">Сначала важные события и то, что требует внимания.</p>
+                </div>
+                <a class="primary-btn" href="/calendar">Открыть календарь →</a>
+            </div>
+
+            <div class="stats-grid">
+                <a class="stat-card" href="/employees">
+                    <span>Сотрудники</span>
+                    <strong>{{ total_users }}</strong>
+                    <small>Активные учётные записи</small>
+                </a>
+                <a class="stat-card" href="/workspace/projects">
+                    <span>Активные проекты</span>
+                    <strong>{{ projects }}</strong>
+                    <small>Проекты не завершены</small>
+                </a>
+                <a class="stat-card" href="/workspace/tasks">
+                    <span>Открытые задачи</span>
+                    <strong>{{ open_tasks }}</strong>
+                    <small>Требуют выполнения</small>
+                </a>
+                <a class="stat-card" href="/today">
+                    <span>Кто работает сегодня</span>
+                    <strong>Открыть</strong>
+                    <small>Графики и отсутствия команды</small>
+                </a>
+                <a class="stat-card attention" href="/workspace/issues">
+                    <span>Открытые проблемы</span>
+                    <strong>{{ open_issues }}</strong>
+                    <small>Блокировки и риски</small>
+                </a>
+                <a class="stat-card" href="/month">
+                    <span>Итоги месяца</span>
+                    <strong>Открыть</strong>
+                    <small>Сводка по сотрудникам</small>
+                </a>
+            </div>
+
+            <div class="dashboard-columns">
+                <section class="panel">
+                    <div class="panel-head">
+                        <div>
+                            <h3>Быстрый доступ</h3>
+                            <p class="muted">Основные рабочие разделы</p>
+                        </div>
+                    </div>
+                    <div class="quick-links">
+                        <a href="/calendar"><span>▦</span><b>Календарь</b><i>→</i></a>
+                        <a href="/today"><span>☀</span><b>Кто работает сегодня</b><i>→</i></a>
+                        <a href="/week"><span>▦</span><b>Расписание недели</b><i>→</i></a>
+                        <a href="/month"><span>▤</span><b>Итоги месяца</b><i>→</i></a>
+                        <a href="/leave"><span>♡</span><b>Отпуск и больничный</b><i>→</i></a>
+                        <a href="/schedule"><span>◷</span><b>Мой график</b><i>→</i></a>
+                    </div>
+                </section>
+
+                <section class="panel">
+                    <div class="panel-head">
+                        <div>
+                            <h3>Журнал действий</h3>
+                            <p class="muted">Последние изменения в системе</p>
+                        </div>
+                    </div>
+                    {% if recent %}
+                    <div class="audit-list">
+                        {% for item in recent %}
+                        <div class="audit-row">
+                            <span class="audit-dot"></span>
+                            <div>
+                                <strong>{{ item.action }} · {{ item.entity_type }}</strong>
+                                <p>{{ item.new_value or item.old_value or item.reason or 'Системное событие' }}</p>
+                                <small>{{ item.created_at.strftime('%d.%m.%Y %H:%M') if item.created_at else '' }}</small>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="empty-panel">Здесь появятся изменения и действия пользователей.</div>
+                    {% endif %}
+                </section>
+            </div>
+
+            <p class="notice">
+                WorkMonitor фиксирует рабочие события и трудозатраты.
+                Нераспределённое время само по себе не означает отсутствие работы или нарушение.
+            </p>
+        </section>
+    </main>
+</div>
+{% endblock %}
