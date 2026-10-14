@@ -1,0 +1,9 @@
+{% macro user_avatar(user, css_class='avatar') %}
+    {%- if user and user.avatar_path -%}
+        <img class="{{ css_class }} avatar-img"
+             src="{{ url_for('uploaded_file', filename=user.avatar_path) }}"
+             alt="">
+    {%- else -%}
+        <span class="{{ css_class }}">{{ (user.full_name if user else '?')[:1]|upper }}</span>
+    {%- endif -%}
+{% endmacro %}

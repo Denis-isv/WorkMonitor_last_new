@@ -7,6 +7,7 @@ from flask_login import LoginManager, UserMixin, login_user, login_required, log
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
+import uuid
 
 load_dotenv()
 app = Flask(__name__)
@@ -50,6 +51,7 @@ class User(UserMixin, db.Model):
     schedule_id=db.Column(db.Integer, db.ForeignKey('work_schedule.id'))
     position=db.Column(db.String(160), default='')
     work_rate=db.Column(db.String(20), default='full', nullable=False)
+    avatar_path=db.Column(db.String(500), default='')          # ← здесь
     manager_id=db.Column(db.Integer, db.ForeignKey('user.id'))
     active=db.Column(db.Boolean, default=True, nullable=False)
     created_at=db.Column(db.DateTime, default=now)
@@ -316,6 +318,18 @@ class DailySchedule(db.Model):
     employee=db.relationship('User')
     __table_args__=(db.UniqueConstraint('user_id','work_date',name='uq_daily_schedule_user_date'),)
 
+class DayTask(db.Model):
+    __tablename__ = 'day_task'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    work_date = db.Column(db.Date, nullable=False, index=True)
+    text = db.Column(db.String(500), nullable=False)
+    done = db.Column(db.Boolean, default=False, nullable=False)
+    position = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=now)
+
+    user = db.relationship('User', backref='day_tasks')
+
 @login_manager.user_loader
 def load_user(user_id):
     try: return db.session.get(User, int(user_id))
@@ -331,11 +345,75 @@ def admin_required(fn):
 
 def audit(action, entity_type='', entity_id='', old='', new='', reason=''):
     try:
+        if entity_type == 'User':
+            old = ''
+            new = ''
         db.session.add(AuditLog(actor_id=current_user.id if current_user.is_authenticated else None,
             action=action, entity_type=entity_type, entity_id=str(entity_id or ''),
             old_value=str(old or '')[:10000], new_value=str(new or '')[:10000],
             reason=str(reason or '')[:2000], ip_address=(request.remote_addr or '')[:80]))
-    except Exception: pass
+    except Exception:
+        pass
+
+ALLOWED_AVATAR_EXT = {'.png', '.jpg', '.jpeg', '.webp', '.gif'}
+
+@app.route('/profile/avatar', methods=['POST'])
+@login_required
+def upload_avatar():
+    """Загрузка аватара текущего пользователя."""
+    file = request.files.get('avatar')
+    if not file or not file.filename:
+        flash('Файл не выбран', 'error')
+        return redirect(request.referrer or url_for('dashboard'))
+
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in ALLOWED_AVATAR_EXT:
+        flash('Допустимы только PNG, JPG, WEBP, GIF', 'error')
+        return redirect(request.referrer or url_for('dashboard'))
+
+    # Ограничение по размеру — MAX_CONTENT_LENGTH (12 МБ) уже стоит в config.
+    folder = os.path.join(app.config['UPLOAD_FOLDER'], 'avatars')
+    os.makedirs(folder, exist_ok=True)
+
+    # Удаляем старый аватар этого пользователя
+    if current_user.avatar_path:
+        old_path = os.path.join(app.config['UPLOAD_FOLDER'], current_user.avatar_path)
+        try:
+            if os.path.isfile(old_path):
+                os.remove(old_path)
+        except Exception:
+            pass
+
+    stored_name = f"user{current_user.id}_{uuid.uuid4().hex[:12]}{ext}"
+    file.save(os.path.join(folder, stored_name))
+    current_user.avatar_path = f"avatars/{stored_name}"
+    audit('update', 'User', current_user.id, new='avatar')
+    db.session.commit()
+    flash('Аватар обновлён', 'success')
+    return redirect(request.referrer or url_for('dashboard'))
+
+
+@app.route('/profile/avatar/delete', methods=['POST'])
+@login_required
+def delete_avatar():
+    if current_user.avatar_path:
+        old_path = os.path.join(app.config['UPLOAD_FOLDER'], current_user.avatar_path)
+        try:
+            if os.path.isfile(old_path):
+                os.remove(old_path)
+        except Exception:
+            pass
+        current_user.avatar_path = ''
+        db.session.commit()
+        flash('Аватар удалён', 'success')
+    return redirect(request.referrer or url_for('dashboard'))
+
+
+@app.route('/uploads/<path:filename>')
+@login_required
+def uploaded_file(filename):
+    """Отдача загруженных файлов (аватары и прочее)."""
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 # =====================================================================
 # Шаблонные фильтры (русский язык)
@@ -461,6 +539,11 @@ def dashboard():
     return render_template('dashboard.html',total_users=total_users,projects=projects,open_tasks=open_tasks,
         pending=pending,open_issues=open_issues,minutes=minutes,recent=recent,today=today)
 
+@app.route('/profile')
+@login_required
+def profile_page():
+    return render_template('profile.html')
+
 @app.route('/api/events', methods=['GET','POST'])
 @login_required
 def events_api():
@@ -551,22 +634,65 @@ def events_api():
     for s in schedule_q.all():
         owner = db.session.get(User, s.user_id)
         if s.is_day_off:
-            result.append({'id': f'schedule-off-{s.id}','title': '🏖 Выходной',
+            result.append({
+                'id': f'schedule-off-{s.id}',
+                'title': '🏖 Выходной',
                 'description': owner.full_name if owner else '',
-                'start_at': datetime.combine(s.work_date, time(0,0)).isoformat(),
-                'end_at': datetime.combine(s.work_date, time(23,59)).isoformat(),
-                'category': 'day_off','status': 'planned',
-                'user_id': s.user_id,'user_name': owner.full_name if owner else '',
-                'readonly': True,'source': 'schedule'})
-        else:
-            result.append({'id': f'schedule-{s.id}',
-                'title': f'🕐 Работа {s.start_time}–{s.end_time}',
-                'description': owner.full_name if owner else '',
-                'start_at': datetime.combine(s.work_date, time.fromisoformat(s.start_time)).isoformat(),
-                'end_at': datetime.combine(s.work_date, time.fromisoformat(s.end_time)).isoformat(),
-                'category': 'work','status': 'planned',
-                'user_id': s.user_id,'user_name': owner.full_name if owner else '',
-                'readonly': True,'source': 'schedule'})
+                'start_at': datetime.combine(s.work_date, time(0, 0)).isoformat(),
+                'end_at': datetime.combine(s.work_date, time(23, 59)).isoformat(),
+                'category': 'day_off',
+                'status': 'planned',
+                'user_id': s.user_id,
+                'user_name': owner.full_name if owner else '',
+                'readonly': True,
+                'source': 'schedule',
+            })
+            continue
+
+        try:
+            st = (s.start_time or '09:00').strip() or '09:00'
+            en = (s.end_time or '18:00').strip() or '18:00'
+            start_dt = datetime.combine(s.work_date, time.fromisoformat(st))
+            end_dt = datetime.combine(s.work_date, time.fromisoformat(en))
+        except (ValueError, TypeError):
+            start_dt = datetime.combine(s.work_date, time(9, 0))
+            end_dt = datetime.combine(s.work_date, time(18, 0))
+
+        result.append({
+            'id': f'schedule-{s.id}',
+            'title': f'🕐 План {start_dt.strftime("%H:%M")}–{end_dt.strftime("%H:%M")}',
+            'description': owner.full_name if owner else '',
+            'start_at': start_dt.isoformat(),
+            'end_at': end_dt.isoformat(),
+            'category': 'work',
+            'status': 'planned',
+            'user_id': s.user_id,
+            'user_name': owner.full_name if owner else '',
+            'readonly': True,
+            'source': 'schedule',
+        })
+
+        if s.actual_start and s.actual_end:
+            try:
+                a_s = datetime.combine(s.work_date, time.fromisoformat(s.actual_start))
+                a_e = datetime.combine(s.work_date, time.fromisoformat(s.actual_end))
+                eff = int((s.efficiency or 1.0) * 100)
+                result.append({
+                    'id': f'schedule-fact-{s.id}',
+                    'title': f'✅ Факт {a_s.strftime("%H:%M")}–{a_e.strftime("%H:%M")} · e% {eff}',
+                    'description': owner.full_name if owner else '',
+                    'start_at': a_s.isoformat(),
+                    'end_at': a_e.isoformat(),
+                    'category': 'fact',
+                    'status': 'confirmed',
+                    'user_id': s.user_id,
+                    'user_name': owner.full_name if owner else '',
+                    'readonly': True,
+                    'source': 'schedule',
+                })
+            except (ValueError, TypeError):
+                pass
+
     return jsonify(result)
 
 def event_json(e):
@@ -622,7 +748,7 @@ SECTIONS={
 'departments': {'title':'Подразделения','model':Department,'fields':[('name','Название','text',True),('description','Описание','textarea',False)],'cols':['name','description'],'search':['name','description']},
 'schedules': {'title':'Рабочие графики','model':WorkSchedule,'fields':[('name','Название','text',True),('workdays','Дни недели (1=пн…7=вс)','text',True),('start_time','Начало','text',True),('end_time','Окончание','text',True),('tolerance_minutes','Допуск, мин','number',True),('break_minutes','Перерыв, мин','number',True),('active','Активен','choice:true,false',True)],'cols':['name','workdays','start_time','end_time','tolerance_minutes','break_minutes','active'],'search':['name']},
 }
-NAV=[('dashboard','Главная','⌂'),('calendar','Календарь','▦'),('today','Кто работает сегодня','☀'),('week','Расписание недели','▦'),('month','Итоги месяца','▤'),('leave','Отпуск и больничный','♡'),('schedule','Мой график','◷'),('users','Сотрудники','♙'),('projects','Проекты','▤'),('tasks','Задачи','✓'),('issues','Проблемы','!')]
+NAV=[('dashboard','Главная','⌂'),('profile','Профиль','👤'),('calendar','Календарь','▦'),('today','Кто работает сегодня','☀'),('week','Расписание недели','▦'),('month','Итоги месяца','▤'),('leave','Отпуск и больничный','♡'),('schedule','Мой график','◷'),('users','Сотрудники','♙'),('projects','Проекты','▤'),('tasks','Задачи','✓'),('issues','Проблемы','!')]
 
 def label_value(key, value):
     if value is None or value=='': return '—'
@@ -940,41 +1066,79 @@ def team_week():
 @app.route('/month')
 @login_required
 def month_summary():
-    today=date.today(); year=int(request.args.get('year',today.year)); month=int(request.args.get('month',today.month))
-    start=date(year,month,1); end=date(year+1,1,1) if month==12 else date(year,month+1,1)
-    users=User.query.filter_by(active=True).order_by(User.full_name).all()
-    rows=[]
-    for u in users:
-        q=DailySchedule.query.filter(DailySchedule.user_id==u.id,DailySchedule.work_date>=start,DailySchedule.work_date<end).all()
-        workdays=sum(1 for x in q if not x.is_day_off)
-        planned=0
-        for x in q:
-            if x.is_day_off: continue
-            try:
-                ps=x.start_time.split(':'); pe=x.end_time.split(':')
-                planned += (int(pe[0])*60+int(pe[1])) - (int(ps[0])*60+int(ps[1]))
-            except Exception:
-                pass
+    today = date.today()
+    year = int(request.args.get('year', today.year))
+    month = int(request.args.get('month', today.month))
 
-        absq=AbsenceRequest.query.filter(
-            AbsenceRequest.user_id==u.id,
-            AbsenceRequest.status=='approved',
-            AbsenceRequest.date_start<end,
-            db.or_(AbsenceRequest.date_end.is_(None), AbsenceRequest.date_end>=start)
+    start = date(year, month, 1)
+    end = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+
+    users = User.query.filter_by(active=True).order_by(User.full_name).all()
+
+    def _abs_days(a, first, last):
+        e = a.date_end or (last - timedelta(days=1))
+        return max(0, (min(e, last - timedelta(days=1)) - max(a.date_start, first)).days + 1)
+
+    rows = []
+    for u in users:
+        q = DailySchedule.query.filter(
+            DailySchedule.user_id == u.id,
+            DailySchedule.work_date >= start,
+            DailySchedule.work_date < end
         ).all()
 
-        def _abs_days(a, first, last):
-            e = a.date_end or (last - timedelta(days=1))
-            return max(0, (min(e, last - timedelta(days=1)) - max(a.date_start, first)).days + 1)
+        workdays = 0
+        planned = 0
+        actual = 0
+        eff_sum = 0
+        eff_count = 0
+
+        for x in q:
+            if x.is_day_off:
+                continue
+            workdays += 1
+            try:
+                ps = x.start_time.split(':'); pe = x.end_time.split(':')
+                planned += (int(pe[0]) * 60 + int(pe[1])) - (int(ps[0]) * 60 + int(ps[1]))
+            except Exception:
+                pass
+            if x.actual_start and x.actual_end:
+                try:
+                    a_s = x.actual_start.split(':'); a_e = x.actual_end.split(':')
+                    actual += (int(a_e[0]) * 60 + int(a_e[1])) - (int(a_s[0]) * 60 + int(a_s[1]))
+                except Exception:
+                    pass
+                eff_sum += (x.efficiency or 1.0)
+                eff_count += 1
+
+        absq = AbsenceRequest.query.filter(
+            AbsenceRequest.user_id == u.id,
+            AbsenceRequest.status == 'approved',
+            AbsenceRequest.date_start < end,
+            db.or_(AbsenceRequest.date_end.is_(None), AbsenceRequest.date_end >= start)
+        ).all()
 
         rows.append({
-            'user':u,'days':workdays,'hours':round(planned/60,1),
-            'vacation':sum(_abs_days(a,start,end) for a in absq if a.absence_type=='vacation'),
-            'sick':sum(_abs_days(a,start,end) for a in absq if a.absence_type=='sick_leave')
+            'user': u,
+            'days': workdays,
+            'hours': round(planned / 60, 1),
+            'actual_hours': round(actual / 60, 1),
+            'progress': min(100, round(actual / planned * 100)) if planned > 0 else 0,
+            'avg_efficiency': round(eff_sum / eff_count * 100) if eff_count > 0 else 0,
+            'vacation': sum(_abs_days(a, start, end) for a in absq if a.absence_type == 'vacation'),
+            'sick': sum(_abs_days(a, start, end) for a in absq if a.absence_type == 'sick_leave'),
         })
-    return render_template('team_month.html',rows=rows,year=year,month=month,
-        month_name=['','Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'][month],
-        prev=(date(year,month,1)-timedelta(days=1)),nxt=end)
+
+    return render_template(
+        'team_month.html',
+        rows=rows,
+        year=year,
+        month=month,
+        month_name=['', 'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+                    'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'][month],
+        prev=(date(year, month, 1) - timedelta(days=1)),
+        nxt=end,
+    )
 
 @app.route('/leave',methods=['GET','POST'])
 @login_required
@@ -1105,6 +1269,217 @@ def employee_directory():
 @app.route('/health')
 def health(): return jsonify(status='ok',service='WorkMonitor',database='ok')
 
+# =====================================================================
+# API дня (DailySchedule)
+# =====================================================================
+@app.route('/api/day/<date_str>', methods=['GET', 'POST'])
+@login_required
+def api_day(date_str):
+    try:
+        d = date.fromisoformat(date_str)
+    except ValueError:
+        return jsonify(error='Неверная дата'), 400
+
+    if request.method == 'GET':
+        sch = DailySchedule.query.filter_by(user_id=current_user.id, work_date=d).first()
+        return jsonify({
+            'date': d.isoformat(),
+            'is_day_off': bool(sch.is_day_off) if sch else False,
+            'start_time': sch.start_time if sch and sch.start_time else '09:00',
+            'end_time': sch.end_time if sch and sch.end_time else '18:00',
+            'actual_start': sch.actual_start if sch and sch.actual_start else '',
+            'actual_end': sch.actual_end if sch and sch.actual_end else '',
+            'efficiency': (sch.efficiency * 100) if sch and sch.efficiency else 100,
+            'tasks_text': sch.tasks_text if sch and sch.tasks_text else '',
+            'fact_text': sch.fact_text if sch and sch.fact_text else '',
+            'note': sch.note if sch and sch.note else '',
+        })
+
+    data = request.get_json(silent=True) or request.form
+    try:
+        sch = DailySchedule.query.filter_by(user_id=current_user.id, work_date=d).first()
+        if not sch:
+            sch = DailySchedule(user_id=current_user.id, work_date=d)
+            db.session.add(sch)
+
+        sch.is_day_off = bool(data.get('is_day_off'))
+        sch.start_time = (data.get('start_time') or '09:00').strip() or '09:00'
+        sch.end_time = (data.get('end_time') or '18:00').strip() or '18:00'
+        sch.actual_start = (data.get('actual_start') or '').strip()
+        sch.actual_end = (data.get('actual_end') or '').strip()
+        try:
+            sch.efficiency = max(0.0, min(1.0, float(data.get('efficiency', 100)) / 100.0))
+        except (ValueError, TypeError):
+            sch.efficiency = 1.0
+        sch.tasks_text = (data.get('tasks_text') or '').strip()   # ← на уровне try/except
+        sch.fact_text = (data.get('fact_text') or '').strip()
+        sch.note = (data.get('note') or '').strip()[:500]
+
+        # --- Синхронизация статуса DayTask с новым fact_text ---
+        def _norm(s):
+            s = (s or '').strip()
+            return s[1:].strip() if s.startswith('-') else s
+
+        fact_norms = set()
+        for ln in (sch.fact_text or '').split('\n'):
+            n = _norm(ln)
+            if n:
+                fact_norms.add(n.lower())
+
+        day_tasks = DayTask.query.filter_by(
+            user_id=current_user.id, work_date=d).all()
+        for t in day_tasks:
+            task_norm = _norm(t.text).lower()
+            if not task_norm:
+                continue
+            t.done = task_norm in fact_norms
+        # --- /Синхронизация ---
+
+        db.session.commit()
+        return jsonify(ok=True)
+    except Exception as e:
+        db.session.rollback()
+        return jsonify(error=str(e)), 400
+
+
+# =====================================================================
+# Чек-лист задач дня (DayTask)
+# =====================================================================
+@app.route('/api/day/<date_str>/tasks', methods=['GET'])
+@login_required
+def api_tasks_list(date_str):
+    try:
+        d = datetime.strptime(date_str, '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify(error='bad date'), 400
+
+    tasks = DayTask.query.filter_by(user_id=current_user.id, work_date=d)\
+        .order_by(DayTask.position, DayTask.id).all()
+
+    # Автоимпорт: если чек-листа нет, но в DailySchedule.tasks_text
+    # есть задачи — переносим их в DayTask один раз.
+    if not tasks:
+        sch = DailySchedule.query.filter_by(user_id=current_user.id, work_date=d).first()
+        if sch and sch.tasks_text:
+            lines = []
+            for line in sch.tasks_text.split('\n'):
+                s = line.strip()
+                if not s:
+                    continue
+                if s.startswith('-'):
+                    s = s[1:].strip()
+                if s:
+                    lines.append(s)
+            for i, text in enumerate(lines):
+                db.session.add(DayTask(
+                    user_id=current_user.id,
+                    work_date=d,
+                    text=text[:500],
+                    done=False,
+                    position=i + 1,
+                ))
+            if lines:
+                db.session.commit()
+                tasks = DayTask.query.filter_by(user_id=current_user.id, work_date=d)\
+                    .order_by(DayTask.position, DayTask.id).all()
+
+    return jsonify([{
+        'id': t.id, 'text': t.text, 'done': t.done, 'position': t.position
+    } for t in tasks])
+
+
+@app.route('/api/day/<date_str>/tasks', methods=['POST'])
+@login_required
+def api_tasks_create(date_str):
+    try:
+        d = datetime.strptime(date_str, '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify(error='bad date'), 400
+    data = request.get_json() or {}
+    text = (data.get('text') or '').strip()
+    if not text:
+        return jsonify(error='empty text'), 400
+    max_pos = db.session.query(db.func.max(DayTask.position))\
+        .filter_by(user_id=current_user.id, work_date=d).scalar() or 0
+    t = DayTask(user_id=current_user.id, work_date=d, text=text, position=max_pos + 1)
+    db.session.add(t)
+    db.session.commit()
+    return jsonify(id=t.id, text=t.text, done=t.done, position=t.position)
+
+
+@app.route('/api/tasks/<int:task_id>', methods=['PATCH'])
+@login_required
+def api_tasks_update(task_id):
+    t = DayTask.query.get_or_404(task_id)
+    if t.user_id != current_user.id:
+        return jsonify(error='forbidden'), 403
+    data = request.get_json() or {}
+
+    if 'done' in data:
+        t.done = bool(data['done'])
+
+        # --- Синхронизация с DailySchedule.fact_text ---
+        sch = DailySchedule.query.filter_by(
+            user_id=t.user_id, work_date=t.work_date).first()
+        if not sch:
+            sch = DailySchedule(user_id=t.user_id, work_date=t.work_date)
+            db.session.add(sch)
+            db.session.flush()
+
+        def _norm(s):
+            s = (s or '').strip()
+            return s[1:].strip() if s.startswith('-') else s
+
+        task_norm = _norm(t.text)
+        fact_lines = [ln for ln in (sch.fact_text or '').split('\n') if ln.strip()]
+        fact_norms = {_norm(ln) for ln in fact_lines}
+
+        if t.done:
+            # Добавляем задачу в «Что сделал», если её там ещё нет
+            if task_norm and task_norm not in fact_norms:
+                fact_lines.append(f"- {t.text}")
+        else:
+            # Убираем из «Что сделал» при снятии галочки
+            fact_lines = [ln for ln in fact_lines if _norm(ln) != task_norm]
+
+        sch.fact_text = '\n'.join(fact_lines)
+        # --- /Синхронизация ---
+
+    if 'text' in data and data['text'].strip():
+        t.text = data['text'].strip()
+
+    db.session.commit()
+    return jsonify(id=t.id, text=t.text, done=t.done)
+
+
+@app.route('/api/tasks/<int:task_id>', methods=['DELETE'])
+@login_required
+def api_tasks_delete(task_id):
+    t = DayTask.query.get_or_404(task_id)
+    if t.user_id != current_user.id:
+        return jsonify(error='forbidden'), 403
+
+    # Убираем задачу из «Что сделал», если она там была
+    sch = DailySchedule.query.filter_by(
+        user_id=t.user_id, work_date=t.work_date).first()
+    if sch and sch.fact_text:
+        def _norm(s):
+            s = (s or '').strip()
+            return s[1:].strip() if s.startswith('-') else s
+        task_norm = _norm(t.text)
+        sch.fact_text = '\n'.join(
+            ln for ln in sch.fact_text.split('\n')
+            if ln.strip() and _norm(ln) != task_norm
+        )
+
+    db.session.delete(t)
+    db.session.commit()
+    return jsonify(ok=True)
+
+
+# =====================================================================
+# Автосоздание таблиц + миграция колонок
+# =====================================================================
 with app.app_context():
     db.create_all()
     try:
@@ -1116,6 +1491,14 @@ with app.app_context():
         cols = {row[1] for row in db.session.execute(db.text('PRAGMA table_info(user)')).fetchall()}
         if 'work_rate' not in cols:
             db.session.execute(db.text("ALTER TABLE user ADD COLUMN work_rate VARCHAR(20) NOT NULL DEFAULT 'full'"))
+            db.session.commit()
+    except Exception:
+        db.session.rollback()
+    try:
+        cols = {row[1] for row in db.session.execute(db.text('PRAGMA table_info(user)')).fetchall()}
+        if 'avatar_path' not in cols:
+            db.session.execute(db.text(
+                "ALTER TABLE user ADD COLUMN avatar_path VARCHAR(500) DEFAULT ''"))
             db.session.commit()
     except Exception:
         db.session.rollback()

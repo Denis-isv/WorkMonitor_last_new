@@ -24,7 +24,7 @@ from PIL import Image, ImageDraw, ImageFont
 from app import (
     app, db, User, CalendarEvent, TelegramMessage, ExtractedEvent,
     LLMRun, ConfirmationRequest, DailySchedule, AbsenceRequest,
-    TimeEntry, Project, Task,
+    TimeEntry, Project, Task, DayTask,
 )
 from ai_parser import get_ai_parser
 
@@ -137,6 +137,16 @@ def get_fonts():
             continue
     d = ImageFont.load_default()
     return {'title': d, 'day': d, 'header': d, 'cell': d, 'small': d}
+
+
+def _fallback_worked_hours(start_str, end_str):
+    """Резервный расчёт отработанных часов, если calculate_worked_hours недоступна."""
+    try:
+        sh, sm = map(int, start_str.split(':'))
+        eh, em = map(int, end_str.split(':'))
+        return timedelta(minutes=(eh * 60 + em) - (sh * 60 + sm))
+    except Exception:
+        return timedelta(0)
 
 
 async def _reply_personal(bot, user, text, parse_mode='HTML'):
@@ -1252,6 +1262,151 @@ def generate_my_week_image(user_id, offset=0):
     return buf
 
 
+# =====================================================================
+# Картинка «Итоги всех сотрудников»
+# =====================================================================
+def generate_all_summary_image(offset_months=0):
+    """Картинка с итогами всех сотрудников за месяц."""
+    from app import Attendance  # локальный импорт, чтобы избежать циклов
+    try:
+        from app import calculate_worked_hours  # noqa
+        _calc = calculate_worked_hours
+    except ImportError:
+        _calc = _fallback_worked_hours
+
+    today = date.today()
+    m = today.month + offset_months
+    y = today.year
+    while m < 1:
+        m += 12; y -= 1
+    while m > 12:
+        m -= 12; y += 1
+    first = date(y, m, 1)
+    end = date(y + 1, 1, 1) if m == 12 else date(y, m + 1, 1)
+
+    users = User.query.filter_by(active=True).order_by(User.full_name).all()
+
+    rows = []
+    grand_worked = 0
+    grand_eff_min = 0
+    grand_late = 0
+
+    for u in users:
+        atts = Attendance.query.filter(
+            Attendance.user_id == u.id,
+            Attendance.date >= first,
+            Attendance.date < end,
+            Attendance.status != 'rejected'
+        ).all()
+
+        total_min = 0
+        eff_min = 0
+        eff_count = 0
+        late_min = 0
+
+        for a in atts:
+            if a.actual_start and a.actual_end:
+                w = _calc(a.actual_start, a.actual_end)
+                wm = int(w.total_seconds() // 60)
+                total_min += wm
+                eff_min += int(wm * (a.efficiency or 1.0))
+                eff_count += 1
+            if getattr(a, 'early_start', None) and a.early_start > 0:
+                late_min += a.early_start
+
+        if total_min == 0 and late_min == 0:
+            continue
+
+        avg_eff = (eff_min / total_min * 100) if total_min > 0 else 0
+        final_min = eff_min - late_min
+
+        rows.append((u.full_name, total_min, avg_eff, late_min, final_min))
+        grand_worked += total_min
+        grand_eff_min += eff_min
+        grand_late += late_min
+
+    grand_avg = (grand_eff_min / grand_worked * 100) if grand_worked > 0 else 0
+    grand_final = grand_eff_min - grand_late
+
+    img_width = 1200
+    header_height = 160
+    table_header_height = 70
+    row_height = 55
+    footer_height = 110
+    img_height = header_height + table_header_height + row_height * max(len(rows), 1) + footer_height
+
+    img = Image.new('RGB', (img_width, img_height), '#f8fafc')
+    draw = ImageDraw.Draw(img)
+    f = get_fonts()
+
+    # Заголовок
+    draw.rectangle([0, 0, img_width, header_height], fill='#286c6c')
+    draw.text((40, 30), 'ИТОГИ ВСЕХ СОТРУДНИКОВ', fill='white', font=f['title'])
+    draw.text((40, 90), f"{MONTHS_RU[m-1]} {y}", fill='#c7efef', font=f['header'])
+
+    y0 = header_height
+    draw.rectangle([0, y0, img_width, y0 + table_header_height], fill='#e5e7eb')
+
+    # Колонки
+    col_x = [30, 500, 700, 900, 1050]
+    headers = ['Сотрудник', 'Отработано', 'Ср. e%', 'Опоздания', 'Итого']
+    for i, h in enumerate(headers):
+        draw.text((col_x[i], y0 + 22), h, fill='#1f2937', font=f['header'])
+
+    # Строки
+    for i, (name, worked_min, avg, late_min, final_min) in enumerate(rows):
+        y1 = y0 + table_header_height + i * row_height
+        bg = '#ffffff' if i % 2 == 0 else '#f1f5f9'
+        draw.rectangle([0, y1, img_width, y1 + row_height], fill=bg)
+
+        name_short = name if len(name) <= 32 else name[:29] + '...'
+        draw.text((col_x[0], y1 + 16), name_short, fill='#1f2937', font=f['cell'])
+
+        wh = worked_min // 60
+        wm = worked_min % 60
+        draw.text((col_x[1], y1 + 16), f"{wh}ч {wm:02d}м", fill='#4f46e5', font=f['cell'])
+
+        eff_color = '#10b981' if avg >= 85 else ('#e9a36b' if avg >= 60 else '#e88e8e')
+        draw.text((col_x[2], y1 + 16), f"{avg:.0f}%", fill=eff_color, font=f['cell'])
+
+        lh = late_min // 60
+        lm = late_min % 60
+        late_color = '#e88e8e' if late_min > 0 else '#9ca3af'
+        draw.text((col_x[3], y1 + 16), f"{lh}ч {lm:02d}м", fill=late_color, font=f['cell'])
+
+        fh = final_min // 60
+        fm = final_min % 60
+        draw.text((col_x[4], y1 + 16), f"{fh}ч {fm:02d}м", fill='#047857', font=f['cell'])
+
+    if not rows:
+        draw.text((30, y0 + table_header_height + 30),
+                  'За этот месяц нет данных',
+                  fill='#6b7280', font=f['header'])
+
+    # Итоговая полоса
+    y_footer = y0 + table_header_height + row_height * max(len(rows), 1)
+    draw.rectangle([0, y_footer, img_width, y_footer + row_height], fill='#286c6c')
+
+    gw_h = grand_worked // 60; gw_m = grand_worked % 60
+    gl_h = grand_late // 60; gl_m = grand_late % 60
+    gf_h = grand_final // 60; gf_m = grand_final % 60
+
+    draw.text((col_x[0], y_footer + 18), 'ИТОГО:', fill='white', font=f['header'])
+    draw.text((col_x[1], y_footer + 18), f"{gw_h}ч {gw_m:02d}м", fill='#c7efef', font=f['cell'])
+    draw.text((col_x[2], y_footer + 18), f"{grand_avg:.0f}%", fill='#c7efef', font=f['cell'])
+    draw.text((col_x[3], y_footer + 18), f"{gl_h}ч {gl_m:02d}м", fill='#fca5a5', font=f['cell'])
+    draw.text((col_x[4], y_footer + 18), f"{gf_h}ч {gf_m:02d}м", fill='#86efac', font=f['cell'])
+
+    draw.text((30, img_height - 40),
+              f'Сформировано: {datetime.now().strftime("%d.%m.%Y %H:%M")}',
+              fill='#6b7280', font=f['small'])
+
+    buf = BytesIO()
+    img.save(buf, format='PNG')
+    buf.seek(0)
+    return buf
+
+
 async def mysch_view_callback(update, context):
     q = update.callback_query
     await q.answer()
@@ -1345,6 +1500,7 @@ def generate_all_week_image(offset=0):
     for emp in users:
         emp_row = []
         has_any = False
+        total_minutes = 0
         for i in range(7):
             day = ws + timedelta(days=i)
             sch = DailySchedule.query.filter_by(user_id=emp.id, work_date=day).first()
@@ -1354,12 +1510,17 @@ def generate_all_week_image(offset=0):
             elif sch:
                 emp_row.append(f"{sch.start_time[:5]}–{sch.end_time[:5]}")
                 has_any = True
+                try:
+                    ps = sch.start_time.split(':'); pe = sch.end_time.split(':')
+                    total_minutes += (int(pe[0])*60+int(pe[1])) - (int(ps[0])*60+int(ps[1]))
+                except Exception:
+                    pass
             else:
                 emp_row.append('—')
         if has_any:
-            rows.append((emp.full_name, emp_row))
+            rows.append((emp.full_name, emp_row, total_minutes))
 
-    img_width = 1400
+    img_width = 1500
     header_height = 150
     table_header_height = 90
     row_height = 55
@@ -1377,16 +1538,20 @@ def generate_all_week_image(offset=0):
     y0 = header_height
     draw.rectangle([0, y0, img_width, y0 + table_header_height], fill='#e5e7eb')
     name_col_width = 230
-    day_col_width = (img_width - name_col_width - 40) / 7
+    total_col_width = 130
+    day_col_width = (img_width - name_col_width - total_col_width - 40) / 7
+
     draw.text((30, y0 + 30), 'Сотрудник', fill='#1f2937', font=f['header'])
 
     for i in range(7):
         day_x = name_col_width + 30 + int(i * day_col_width)
         d = ws + timedelta(days=i)
-        draw.text((day_x + 25, y0 + 15), DAYS_RU_SHORT[i], fill='#1f2937', font=f['header'])
-        draw.text((day_x + 15, y0 + 50), d.strftime('%d.%m'), fill='#6b7280', font=f['small'])
+        draw.text((day_x + 20, y0 + 15), DAYS_RU_SHORT[i], fill='#1f2937', font=f['header'])
+        draw.text((day_x + 10, y0 + 50), d.strftime('%d.%m'), fill='#6b7280', font=f['small'])
 
-    for i, (name, emp_row) in enumerate(rows):
+    draw.text((img_width - total_col_width + 15, y0 + 30), 'ИТОГО', fill='#1f2937', font=f['header'])
+
+    for i, (name, emp_row, total_min) in enumerate(rows):
         y1 = y0 + table_header_height + i * row_height
         bg = '#ffffff' if i % 2 == 0 else '#f1f5f9'
         draw.rectangle([0, y1, img_width, y1 + row_height], fill=bg)
@@ -1400,6 +1565,11 @@ def generate_all_week_image(offset=0):
                 draw.text((cell_x + 10, y1 + 16), '—', fill='#9ca3af', font=f['cell'])
             else:
                 draw.text((cell_x + 5, y1 + 16), cell, fill='#286c6c', font=f['cell'])
+
+        total_h = total_min // 60
+        total_m = total_min % 60
+        total_x = img_width - total_col_width + 15
+        draw.text((total_x, y1 + 16), f"{total_h}ч {total_m:02d}м", fill='#10b981', font=f['cell'])
 
     if not rows:
         draw.text((30, y0 + table_header_height + 30),
@@ -1424,16 +1594,15 @@ async def cmd_all_week(update, context):
             buf = generate_all_week_image(offset)
         today = date.today()
         ws = today - timedelta(days=today.weekday()) + timedelta(weeks=offset)
-        await update.effective_message.reply_photo(
-            photo=buf,
-            caption=f"👥 <b>Расписание всех сотрудников</b>\nНеделя с {ws.strftime('%d.%m.%Y')}",
-            parse_mode='HTML')
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("⬅️", callback_data="allweek_prev"),
              InlineKeyboardButton("Текущая", callback_data="allweek_now"),
              InlineKeyboardButton("➡️", callback_data="allweek_next")]
         ])
-        await update.effective_message.reply_text("Навигация:", reply_markup=kb)
+        await update.effective_message.reply_photo(
+            photo=buf,
+            caption=f"👥 <b>Расписание всех сотрудников</b>\nНеделя с {ws.strftime('%d.%m.%Y')}",
+            parse_mode='HTML', reply_markup=kb)
     except Exception as e:
         logger.exception(f"cmd_all_week: {e}")
         await update.effective_message.reply_text("⚠️ Не удалось сформировать картинку.",
@@ -1456,10 +1625,15 @@ async def all_week_callback(update, context):
             buf = generate_all_week_image(offset)
         today = date.today()
         ws = today - timedelta(days=today.weekday()) + timedelta(weeks=offset)
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("⬅️", callback_data="allweek_prev"),
+             InlineKeyboardButton("Текущая", callback_data="allweek_now"),
+             InlineKeyboardButton("➡️", callback_data="allweek_next")]
+        ])
         await q.message.reply_photo(
             photo=buf,
             caption=f"👥 <b>Расписание всех</b>\nНеделя с {ws.strftime('%d.%m.%Y')}",
-            parse_mode='HTML')
+            parse_mode='HTML', reply_markup=kb)
     except Exception as e:
         logger.exception(f"all_week: {e}")
 
@@ -1508,55 +1682,141 @@ def summary_text(user_id, offset_months=0):
 
 
 async def cmd_summary(update, context):
-    tid = update.effective_user.id
+    chat_id = update.effective_chat.id
     with app.app_context():
         db.session.expire_all()
-        user = user_by_tg(tid)
+        user = user_by_tg(chat_id)
         if not user:
             await update.effective_message.reply_text("❌ /start.")
             return
         text = summary_text(user.id, 0)
+
     kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("👥 Итоги всех сотрудников", callback_data="sum_all")]
+        [InlineKeyboardButton("⬅️ Прошлый", callback_data="sum_prev"),
+         InlineKeyboardButton("Текущий", callback_data="sum_now"),
+         InlineKeyboardButton("Следующий ➡️", callback_data="sum_next")],
+        [InlineKeyboardButton("👥 Итоги всех (картинкой)", callback_data="sum_all")],
     ])
     await update.effective_message.reply_text(text, parse_mode='HTML', reply_markup=kb)
 
 
-async def summary_all_callback(update, context):
+async def summary_callback(update, context):
     q = update.callback_query
     await q.answer()
+    chat_id = q.message.chat_id
+    data = q.data
+
+    if data in ("sum_prev", "allsum_prev"):
+        context.user_data['summary_offset'] = context.user_data.get('summary_offset', 0) - 1
+    elif data in ("sum_next", "allsum_next"):
+        context.user_data['summary_offset'] = context.user_data.get('summary_offset', 0) + 1
+    elif data in ("sum_now", "allsum_now"):
+        context.user_data['summary_offset'] = 0
+
+    offset = context.user_data.get('summary_offset', 0)
+
     with app.app_context():
         db.session.expire_all()
-        today = date.today()
-        first = date(today.year, today.month, 1)
-        end = date(today.year + 1, 1, 1) if today.month == 12 else date(today.year, today.month + 1, 1)
-        users = User.query.filter_by(active=True).order_by(User.full_name).all()
-        lines = [f"📊 <b>Итоги всех за {MONTHS_RU[today.month-1]} {today.year}</b>\n━━━━━━━━━━━━━━━━━━━━"]
-        for u in users:
-            schs = DailySchedule.query.filter(
-                DailySchedule.user_id == u.id,
-                DailySchedule.work_date >= first,
-                DailySchedule.work_date < end).all()
-            planned = 0
-            actual = 0
-            for s in schs:
-                if s.is_day_off:
-                    continue
-                try:
-                    ps = s.start_time.split(':'); pe = s.end_time.split(':')
-                    planned += (int(pe[0]) * 60 + int(pe[1])) - (int(ps[0]) * 60 + int(ps[1]))
-                except Exception:
-                    pass
-                if s.actual_start and s.actual_end:
-                    try:
-                        a_s = s.actual_start.split(':'); a_e = s.actual_end.split(':')
-                        actual += (int(a_e[0]) * 60 + int(a_e[1])) - (int(a_s[0]) * 60 + int(a_s[1]))
-                    except Exception:
-                        pass
-            lines.append(f"\n<b>{esc(u.full_name)}</b>\n"
-                         f"   План: {planned/60:.1f} ч · Факт: {actual/60:.1f} ч")
-        text = "\n".join(lines)
-    await q.message.reply_text(text, parse_mode='HTML')
+        user = user_by_tg(chat_id)
+        if not user:
+            return
+
+        text = summary_text(user.id, offset)
+
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("⬅️ Прошлый", callback_data="sum_prev"),
+         InlineKeyboardButton("Текущий", callback_data="sum_now"),
+         InlineKeyboardButton("Следующий ➡️", callback_data="sum_next")],
+        [InlineKeyboardButton("👥 Итоги всех (картинкой)", callback_data="sum_all")],
+    ])
+    try:
+        await q.edit_message_text(text, parse_mode='HTML', reply_markup=kb)
+    except Exception:
+        try:
+            await q.message.reply_text(text, parse_mode='HTML', reply_markup=kb)
+        except Exception:
+            pass
+
+
+async def summary_choice_callback(update, context):
+    q = update.callback_query
+    await q.answer()
+    chat_id = q.message.chat_id
+    context.user_data['summary_offset'] = 0
+
+    with app.app_context():
+        db.session.expire_all()
+        user = user_by_tg(chat_id)
+        if not user:
+            await q.edit_message_text("❌ Аккаунт не привязан.")
+            return
+
+        if q.data == "sum_my":
+            text = summary_text(user.id, 0)
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬅️ Прошлый", callback_data="sum_prev"),
+                 InlineKeyboardButton("Текущий", callback_data="sum_now"),
+                 InlineKeyboardButton("Следующий ➡️", callback_data="sum_next")],
+                [InlineKeyboardButton("👥 Итоги всех (картинкой)", callback_data="sum_all")],
+            ])
+            await q.edit_message_text(text, parse_mode='HTML', reply_markup=kb)
+        else:
+            try:
+                buf = generate_all_summary_image(0)
+            except Exception as e:
+                logger.exception(f"summary image error: {e}")
+                await q.edit_message_text("⚠️ Не удалось сформировать картинку.")
+                return
+
+            today = date.today()
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬅️ Прошлый", callback_data="sum_prev"),
+                 InlineKeyboardButton("Текущий", callback_data="sum_now"),
+                 InlineKeyboardButton("Следующий ➡️", callback_data="sum_next")],
+                [InlineKeyboardButton("👤 Мои итоги", callback_data="sum_my")],
+            ])
+            await q.message.reply_photo(
+                photo=buf,
+                caption=f"📊 <b>Итоги всех за {MONTHS_RU[today.month-1]} {today.year}</b>",
+                parse_mode='HTML',
+                reply_markup=kb
+            )
+
+
+async def summary_all_callback(update, context):
+    """Показ картинки со всеми итогами (используется кнопкой sum_all)."""
+    q = update.callback_query
+    await q.answer()
+    offset = context.user_data.get('summary_offset', 0)
+    with app.app_context():
+        db.session.expire_all()
+        try:
+            buf = generate_all_summary_image(offset)
+        except Exception as e:
+            logger.exception(f"summary image error: {e}")
+            await q.message.reply_text("⚠️ Не удалось сформировать картинку.")
+            return
+
+    today = date.today()
+    m = today.month + offset
+    y = today.year
+    while m < 1:
+        m += 12; y -= 1
+    while m > 12:
+        m -= 12; y += 1
+
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("⬅️ Прошлый", callback_data="sum_prev"),
+         InlineKeyboardButton("Текущий", callback_data="sum_now"),
+         InlineKeyboardButton("Следующий ➡️", callback_data="sum_next")],
+        [InlineKeyboardButton("👤 Мои итоги", callback_data="sum_my")],
+    ])
+    await q.message.reply_photo(
+        photo=buf,
+        caption=f"📊 <b>Итоги всех за {MONTHS_RU[m-1]} {y}</b>",
+        parse_mode='HTML',
+        reply_markup=kb
+    )
 
 
 # =====================================================================
@@ -1790,30 +2050,99 @@ async def handle_hashtag_message(update, context):
         if '#расписание' in text:
             week_start = date.today() - timedelta(days=date.today().weekday())
             day_map = {'ПН': 0, 'ВТ': 1, 'СР': 2, 'ЧТ': 3, 'ПТ': 4, 'СБ': 5, 'ВС': 6}
-            saved = 0
-            for line in text.split('\n'):
-                line = line.strip()
-                m = re.match(r'^(ПН|ВТ|СР|ЧТ|ПТ|СБ|ВС)\s*:\s*(\d{1,2}:\d{2})\s*[-–—]\s*(\d{1,2}:\d{2})\s*(.*)$',
-                             line, re.IGNORECASE)
-                if not m: continue
-                day_code = m.group(1).upper()
-                if day_code not in day_map: continue
-                st, en, task = m.group(2), m.group(3), m.group(4).strip()
+
+            # Парсим блоки по дням: время + список задач
+            day_data = {}          # day_code -> {'start','end','tasks':[],'day_off'}
+            current_day = None
+
+            for raw_line in text.split('\n'):
+                s = raw_line.strip()
+                if not s:
+                    continue
+
+                # Заголовок дня с временем: "ПН: 11:00 - 18:00"
+                m = re.match(
+                    r'^(ПН|ВТ|СР|ЧТ|ПТ|СБ|ВС)\s*:\s*(\d{1,2}:\d{2})\s*[-–—]\s*(\d{1,2}:\d{2})\s*(.*)$',
+                    s, re.IGNORECASE)
+                if m:
+                    day_code = m.group(1).upper()
+                    if day_code not in day_map:
+                        continue
+                    st = m.group(2)
+                    en = m.group(3)
+                    if len(st.split(':')[0]) == 1:
+                        st = '0' + st
+                    if len(en.split(':')[0]) == 1:
+                        en = '0' + en
+                    day_data[day_code] = {'start': st, 'end': en, 'tasks': [], 'day_off': False}
+                    current_day = day_code
+                    tail = m.group(4).strip().lstrip('-').strip()
+                    if tail:
+                        day_data[day_code]['tasks'].append(tail)
+                    continue
+
+                # День без времени (выходной): "СР: ——————"
+                m2 = re.match(r'^(ПН|ВТ|СР|ЧТ|ПТ|СБ|ВС)\s*:\s*[-—–_]*\s*$', s, re.IGNORECASE)
+                if m2:
+                    day_code = m2.group(1).upper()
+                    if day_code in day_map:
+                        day_data[day_code] = {'start': '09:00', 'end': '18:00',
+                                              'tasks': [], 'day_off': True}
+                        current_day = day_code
+                    continue
+
+                # Строка задачи: "-Что-то"
+                if current_day and current_day in day_data:
+                    task_text = s.lstrip('-').strip()
+                    if task_text:
+                        day_data[current_day]['tasks'].append(task_text)
+                    continue
+
+            saved_days = 0
+            saved_tasks = 0
+
+            for day_code, info in day_data.items():
                 target = week_start + timedelta(days=day_map[day_code])
                 sch = DailySchedule.query.filter_by(user_id=user.id, work_date=target).first()
                 if not sch:
                     sch = DailySchedule(user_id=user.id, work_date=target)
                     db.session.add(sch)
-                sch.start_time = st
-                sch.end_time = en
-                sch.is_day_off = False
-                if task:
-                    sch.tasks_text = f"- {task}"
-                saved += 1
+
+                sch.start_time = info['start']
+                sch.end_time = info['end']
+                sch.is_day_off = info['day_off']
+
+                if info['tasks']:
+                    sch.tasks_text = '\n'.join(f"- {t}" for t in info['tasks'])
+                    saved_tasks += len(info['tasks'])
+
+                db.session.flush()
+
+                # Раскладываем задачи в чек-лист DayTask (если ещё нет)
+                if info['tasks']:
+                    existing = {t.text.strip().lower()
+                                for t in DayTask.query.filter_by(
+                                    user_id=user.id, work_date=target).all()}
+                    pos = DayTask.query.filter_by(
+                        user_id=user.id, work_date=target).count()
+                    for t_text in info['tasks']:
+                        if t_text.strip().lower() in existing:
+                            continue
+                        pos += 1
+                        db.session.add(DayTask(
+                            user_id=user.id,
+                            work_date=target,
+                            text=t_text[:500],
+                            done=False,
+                            position=pos,
+                        ))
+
+                saved_days += 1
+
             db.session.commit()
 
-            if saved == 0 and _AI_PARSER:
-                # Пробуем через ИИ
+            if saved_days == 0 and _AI_PARSER:
+                # Fallback через ИИ, если не удалось распарсить структуру
                 try:
                     clean_text = text.replace('#расписание', '').strip()
                     parsed = await _AI_PARSER.analyze(text=clean_text, user_full_name=user.full_name)
@@ -1828,9 +2157,16 @@ async def handle_hashtag_message(update, context):
                                       "⚠️ Не удалось разобрать расписание. Напиши в личку боту.")
                 return
 
+            if saved_days == 0:
+                await _reply_personal(context.bot, user,
+                                      "⚠️ Не удалось разобрать расписание. Проверь формат.")
+                return
+
+            tail_msg = f", задач: {saved_tasks}" if saved_tasks else ""
             await _reply_personal(
                 context.bot, user,
-                f"✅ Сохранено дней: {saved}\n\nОткрой «📅 Моё расписание» для проверки.")
+                f"✅ Сохранено дней: {saved_days}{tail_msg}\n\n"
+                f"Открой «📅 Моё расписание» для проверки.")
             return
 
         if '#дейли' in text:
@@ -1867,7 +2203,6 @@ async def handle_hashtag_message(update, context):
                 msg_txt += f"\n📝 Задач: {len(tasks)}"
             await _reply_personal(context.bot, user, msg_txt)
             return
-
 
 # =====================================================================
 # Reply-меню
@@ -2167,7 +2502,8 @@ def main():
     application.add_handler(CallbackQueryHandler(mysch_view_callback, pattern=r'^mysch_(text|image)$'))
     application.add_handler(CallbackQueryHandler(mysch_img_nav_callback, pattern=r'^mysch_img_(prev|now|next)$'))
     application.add_handler(CallbackQueryHandler(all_week_callback, pattern=r'^allweek_'))
-    application.add_handler(CallbackQueryHandler(summary_all_callback, pattern=r'^sum_all$'))
+    application.add_handler(CallbackQueryHandler(summary_choice_callback, pattern=r'^sum_(my|all)$'))
+    application.add_handler(CallbackQueryHandler(summary_callback, pattern=r'^sum_(prev|next|now)$'))
 
     # Job queue
     if application.job_queue is not None:

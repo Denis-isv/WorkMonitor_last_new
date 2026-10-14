@@ -11,7 +11,8 @@
             </div>
             <div class="profile">
                 <span class="profile-name">{{ current_user.full_name }}</span>
-                <span class="avatar">{{ current_user.full_name[:1]|upper }}</span>
+                    {% from '_macros.html' import user_avatar %}
+                    {{ user_avatar(current_user) }}
                 <a class="logout-link" href="/logout" title="Выйти">↗</a>
             </div>
         </header>
@@ -34,6 +35,7 @@
                     <select id="categoryFilter" aria-label="Фильтр событий">
                         <option value="all">Все события</option>
                         <option value="work">Работа</option>
+                        <option value="fact">Факт</option>
                         <option value="vacation">Отпуск</option>
                         <option value="sick_leave">Больничный</option>
                         <option value="day_off">Выходной</option>
@@ -76,6 +78,25 @@
                         </div>
                         <span id="eventCount" class="count-pill">0 событий</span>
                     </div>
+
+                    <button type="button" class="primary-btn edit-day-btn" id="editDayBtn"
+                            style="width:100%;justify-content:center;margin:12px 0;display:flex;gap:8px;">
+                        ⚙️ Редактировать день
+                    </button>
+
+                    <!-- ЧЕК-ЛИСТ ЗАДАЧ — теперь выше событий -->
+                    <section class="day-tasks" id="dayTasksBlock">
+                        <div class="day-tasks-header">
+                            <h3>📝 Задачи на день</h3>
+                            <span id="tasksCount" class="tasks-count"></span>
+                        </div>
+                        <ul id="dayTasks" class="day-tasks-list"></ul>
+                        <form id="addTaskForm" class="add-task-form" autocomplete="off">
+                            <input type="text" id="newTaskInput" placeholder="Новая задача…" maxlength="500">
+                            <button type="submit" title="Добавить">+</button>
+                        </form>
+                    </section>
+
                     <div id="dayEvents" class="day-events"></div>
                     <div id="emptyState" class="empty-state">
                         <div class="empty-illustration">
@@ -97,6 +118,9 @@
     </main>
 </div>
 
+<!-- ==================================================================
+     Диалог события
+     ================================================================== -->
 <dialog id="eventDialog" class="event-dialog">
     <form id="eventForm">
         <div class="dialog-head">
@@ -147,6 +171,67 @@
             <span class="spacer"></span>
             <button type="button" class="secondary-btn" id="cancelDialog">Отмена</button>
             <button type="submit" class="primary-btn">Сохранить</button>
+        </div>
+    </form>
+</dialog>
+
+<!-- ==================================================================
+     Диалог редактирования дня
+     ================================================================== -->
+<dialog id="dayDialog" class="event-dialog">
+    <form id="dayForm">
+        <div class="dialog-head">
+            <div>
+                <p class="eyebrow">РЕДАКТИРОВАНИЕ ДНЯ</p>
+                <h2 id="dayDialogTitle">День</h2>
+            </div>
+            <button type="button" class="icon-btn" id="closeDayDialog" aria-label="Закрыть">×</button>
+        </div>
+        <input type="hidden" id="dayDate">
+
+        <label class="day-off-check">
+            <input type="checkbox" id="dayIsDayOff">
+            <span>🏖 Выходной</span>
+        </label>
+
+        <div class="form-row">
+            <label>📋 План — с
+                <input id="dayStartTime" type="time">
+            </label>
+            <label>до
+                <input id="dayEndTime" type="time">
+            </label>
+        </div>
+
+        <div class="form-row">
+            <label>✅ Факт — с
+                <input id="dayActualStart" type="time">
+            </label>
+            <label>до
+                <input id="dayActualEnd" type="time">
+            </label>
+        </div>
+
+        <label>📈 Эффективность, %
+            <input id="dayEfficiency" type="number" min="0" max="100" step="1" value="100">
+        </label>
+
+        <!-- Скрытое поле: JS openDayEditor читает/пишет сюда.
+             Значение из DailySchedule.tasks_text. Пустое — норма. -->
+        <input type="hidden" id="dayTasksText">
+
+        <label>✅ Что сделал (факт)
+            <textarea id="dayFactText" rows="3" placeholder="- Отчёт готов&#10;- Провёл встречу"></textarea>
+        </label>
+
+        <label>Заметка
+            <input id="dayNote" type="text" placeholder="Удалённо, офис...">
+        </label>
+
+        <div class="dialog-actions">
+            <span class="spacer"></span>
+            <button type="button" class="secondary-btn" id="cancelDayDialog">Отмена</button>
+            <button type="submit" class="primary-btn">💾 Сохранить день</button>
         </div>
     </form>
 </dialog>

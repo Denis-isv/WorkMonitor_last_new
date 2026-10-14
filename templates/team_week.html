@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% from '_macros.html' import user_avatar %}
 {% block title %}Расписание недели — WorkMonitor{% endblock %}
 {% block body %}
 <div class="app-shell">
@@ -11,7 +12,7 @@
             </div>
             <div class="profile">
                 <span class="profile-name">{{ current_user.full_name }}</span>
-                <span class="avatar">{{ current_user.full_name[:1]|upper }}</span>
+                {{ user_avatar(current_user) }}
                 <a class="logout-link" href="/logout" title="Выйти">↗</a>
             </div>
         </header>
@@ -59,13 +60,18 @@
                         </thead>
                         <tbody>
                             {% for u in users %}
-                            <tr>
+                            <tr class="{{ 'current-user' if u.id == current_user.id else '' }}">
                                 <td>
-                                    <strong>{{ u.full_name }}</strong>
-                                    <div class="muted">{{ 'Полная ставка' if u.work_rate=='full' else 'Полставки' }}</div>
+                                    <div class="week-user">
+                                        {{ user_avatar(u, 'avatar small') }}
+                                        <div>
+                                            <strong>{{ u.full_name }}</strong>
+                                            <div class="muted">{{ 'Полная ставка' if u.work_rate=='full' else 'Полставки' }}</div>
+                                        </div>
+                                    </div>
                                 </td>
                                 {% for d in days %}
-                                {% set v=state(u,d) %}
+                                {% set v = state(u, d) %}
                                 <td>
                                     <span class="schedule-cell {{ 'off' if v in ('Выходной','Отпуск','Больничный') else '' }}">{{ v }}</span>
                                 </td>

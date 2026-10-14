@@ -1,10 +1,9 @@
-"""Безопасный AI-парсер через OpenAI-совместимый endpoint.
+"""AI-парсер для WorkMonitor.
 
-Поддерживает:
-- OpenRouter (рекомендуется, есть бесплатные модели)
+Поддерживает любой OpenAI-совместимый endpoint:
+- OpenRouter (бесплатные модели)
 - OpenAI
-- Ollama (локально, без интернета)
-- Ротацию моделей при ошибке 429 / 404
+- Ollama (локально)
 """
 import os
 import re
@@ -20,9 +19,6 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 
-# =====================================================================
-# Класс AI-парсера с ротацией моделей
-# =====================================================================
 class AIParser:
     def __init__(self, api_key, base_url, models, proxy=None, timeout=60.0):
         if isinstance(models, str):
@@ -52,7 +48,7 @@ class AIParser:
         last_error = None
         attempts = len(self.models) + 1
 
-        for attempt in range(attempts):
+        for _ in range(attempts):
             try:
                 async with httpx.AsyncClient(proxy=self.proxy, timeout=self.timeout) as client:
                     response = await client.post(
@@ -114,7 +110,7 @@ class AIParser:
         yesterday = today - timedelta(days=1)
 
         return f"""Ты — ассистент системы WorkMonitor для учёта рабочего времени.
-Разбирай сообщения сотрудников и возвращай СТРОГО JSON (без markdown).
+Разбирай сообщения сотрудников и возвращай СТРОГО JSON (без markdown, без пояснений).
 
 Контекст:
 - Сегодня: {today.isoformat()} ({days_ru[today.weekday()]})
@@ -131,7 +127,7 @@ class AIParser:
   "tasks": ["..."] | null,
   "absence_type": "vacation" | "sick_leave" | "day_off" | "other" | null,
   "date_end": "YYYY-MM-DD" | null,
-  "query_type": "summary" | "schedule" | "who" | null,
+  "query_type": "summary" | "who" | "schedule" | null,
   "response": "краткий ответ пользователю на русском"
 }}
 
@@ -146,18 +142,21 @@ class AIParser:
 
 Правила:
 - Даты в формате YYYY-MM-DD
-- Если год не указан — текущий
 - Время в формате HH:MM (24ч)
-- Эффективность — ТОЛЬКО если явно указана ("эффективность 80"). Не выдумывай.
-- Только JSON, никаких пояснений
+- Время ВСЕГДА бери ИЗ ТЕКСТА — НИКОГДА не подставляй 09:00–18:00 по умолчанию
+- Если пользователь пишет "с 7:40 до 20:00" → start="07:40", end="20:00"
+- Эффективность — только если явно указана
+- Для больничного date_end может быть null
+- Только JSON, без markdown и лишних слов
 
 Примеры:
-- "сегодня работал с 10 до 18" → {{"action":"fact","date":"{today.isoformat()}","start":"10:00","end":"18:00","efficiency":null,"response":"Записал факт"}}
-- "сегодня работал с 10 до 18, эффективность 80" → {{"action":"fact","date":"{today.isoformat()}","start":"10:00","end":"18:00","efficiency":80,"response":"Записал факт"}}
-- "завтра с 9 до 17, задачи: отчёт, встреча" → {{"action":"plan","date":"{tomorrow.isoformat()}","start":"09:00","end":"17:00","tasks":["отчёт","встреча"],"response":"Записал план"}}
-- "сделал отчёт и провёл встречу" → {{"action":"note","tasks":["отчёт","встреча"],"response":"Записал задачи"}}
-- "хочу в отпуск с 5 по 10 ноября" → {{"action":"absence","absence_type":"vacation","date":"{today.year}-11-05","date_end":"{today.year}-11-10","response":"Заявка на отпуск"}}
-- "сколько я наработал за месяц?" → {{"action":"query","query_type":"summary","response":"Смотрю статистику"}}
+- "сегодня был с 7:40 до 20:00" → {{"action":"fact","date":"{today.isoformat()}","start":"07:40","end":"20:00","response":"Записал"}}
+- "сегодня с 10 до 18" → {{"action":"fact","date":"{today.isoformat()}","start":"10:00","end":"18:00","response":"Записал"}}
+- "завтра с 9 до 17, задачи: отчёт" → {{"action":"plan","date":"{tomorrow.isoformat()}","start":"09:00","end":"17:00","tasks":["отчёт"],"response":"Записал"}}
+- "сделал отчёт и провёл встречу" → {{"action":"note","tasks":["отчёт","встреча"],"response":"Записал"}}
+- "хочу в отпуск с 5 по 10 ноября" → {{"action":"absence","absence_type":"vacation","date":"{today.year}-11-05","date_end":"{today.year}-11-10","response":"Заявка"}}
+- "больничный с сегодня" → {{"action":"absence","absence_type":"sick_leave","date":"{today.isoformat()}","date_end":null,"response":"Больничный"}}
+- "сколько наработал" → {{"action":"query","query_type":"summary","response":"Смотрю"}}
 - "привет" → {{"action":"chat","response":"Привет! Чем помочь?"}}"""
 
     def _parse_response(self, content):
@@ -179,13 +178,12 @@ class AIParser:
 
 
 # =====================================================================
-# Singleton для использования в telegram_bot.py
+# Singleton
 # =====================================================================
 _AI_PARSER_INSTANCE = None
 
 
 def get_ai_parser():
-    """Возвращает singleton AI-парсера или None, если ИИ выключен."""
     global _AI_PARSER_INSTANCE
     if _AI_PARSER_INSTANCE is not None:
         return _AI_PARSER_INSTANCE
@@ -210,10 +208,9 @@ def get_ai_parser():
 
 
 # =====================================================================
-# Синхронная обёртка для старого кода (совместимость)
+# Синхронная обёртка для совместимости со старым кодом
 # =====================================================================
 def parse_work_message(text: str) -> dict:
-    """Синхронная обёртка. Используется в старых вызовах из telegram_bot.py."""
     import asyncio
 
     if not text or not text.strip():
@@ -221,27 +218,22 @@ def parse_work_message(text: str) -> dict:
 
     parser = get_ai_parser()
     if not parser:
-        return {'ok': False, 'error': 'ai_disabled', 'message': 'AI отключён в конфигурации'}
+        return {'ok': False, 'error': 'ai_disabled'}
 
     try:
         loop = asyncio.get_event_loop()
         if loop.is_running():
-            # Мы внутри async контекста — используем новый loop
             import concurrent.futures
             with concurrent.futures.ThreadPoolExecutor() as pool:
-                result = pool.submit(
-                    asyncio.run,
-                    parser.analyze(text, 'Сотрудник')
-                ).result(timeout=90)
+                result = pool.submit(asyncio.run, parser.analyze(text, 'Сотрудник')).result(timeout=90)
         else:
             result = loop.run_until_complete(parser.analyze(text, 'Сотрудник'))
-    except Exception as exc:
+    except Exception:
         try:
             result = asyncio.run(parser.analyze(text, 'Сотрудник'))
         except Exception as e:
             return {'ok': False, 'error': 'ai_parse_failed', 'message': str(e)}
 
-    # Приводим новый формат к старому
     if result.get('action') == 'error':
         return {'ok': False, 'error': 'ai_error', 'message': result.get('response', '')}
 

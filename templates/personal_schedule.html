@@ -11,8 +11,9 @@
             </div>
             <div class="profile">
                 <span class="profile-name">{{ current_user.full_name }}</span>
-                <span class="avatar">{{ current_user.full_name[:1]|upper }}</span>
-                <a class="logout-link" href="/logout">↗</a>
+                    {% from '_macros.html' import user_avatar %}
+                    {{ user_avatar(current_user) }}
+                <a class="logout-link" href="/logout" title="Выйти">↗</a>
             </div>
         </header>
 
@@ -35,10 +36,7 @@
             <div class="schedule-grid">
                 {% for d in days %}
                 {% set x = by_date.get(d) %}
-                {% set is_weekend = d.weekday() >= 5 %}
-                {% set is_today = d == now_date if now_date is defined else false %}
-                <form class="schedule-card {{ 'is-weekend' if is_weekend else '' }} {{ 'is-today' if is_today else '' }}"
-                      method="post" id="form-{{ d.isoformat() }}">
+                <form class="schedule-card" method="post" id="form-{{ d.isoformat() }}">
                     <input type="hidden" name="work_date" value="{{ d.isoformat() }}">
 
                     <div class="schedule-card-head">
@@ -82,9 +80,23 @@
                         </label>
                         <label>
                             <span class="schedule-label">📝 Заметка</span>
-                            <input type="text" name="note" value="{{ x.note if x else '' }}" placeholder="Удалённо, офис...">
+                            <input type="text" name="note" value="{{ x.note if x else '' }}" placeholder="Удалённо...">
                         </label>
                     </div>
+
+                    {% if x and x.tasks_text %}
+                    <div class="schedule-tasks">
+                        <strong>📝 Задачи:</strong>
+                        <pre>{{ x.tasks_text }}</pre>
+                    </div>
+                    {% endif %}
+
+                    {% if x and x.fact_text %}
+                    <div class="schedule-tasks">
+                        <strong>✅ Сделано:</strong>
+                        <pre>{{ x.fact_text }}</pre>
+                    </div>
+                    {% endif %}
 
                     <button type="submit" class="primary-btn schedule-save">Сохранить</button>
                 </form>

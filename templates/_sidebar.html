@@ -1,8 +1,20 @@
+{% from '_macros.html' import user_avatar %}
 <aside class="sidebar expandable-sidebar">
     <a class="logo" href="/dashboard" title="Свернуть/развернуть">W</a>
     <nav class="side-nav">
         <a href="/dashboard" class="nav-item" data-nav="dashboard" title="Главная">
             <span class="nav-ico">⌂</span><span class="nav-label">Главная</span>
+        </a>
+        <a href="/profile" class="nav-item" data-nav="profile" title="Профиль">
+            <span class="nav-ico" aria-hidden="true">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="2"
+                     stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                    <circle cx="12" cy="7" r="4"/>
+                </svg>
+            </span>
+            <span class="nav-label">Профиль</span>
         </a>
         <a href="/calendar" class="nav-item" data-nav="calendar" title="Календарь">
             <span class="nav-ico">▦</span><span class="nav-label">Календарь</span>
@@ -22,9 +34,11 @@
         <a href="/schedule" class="nav-item" data-nav="schedule" title="Мой график">
             <span class="nav-ico">◷</span><span class="nav-label">Мой график</span>
         </a>
+        {% if current_user.role == 'admin' %}
         <a href="/workspace/departments" class="nav-item" data-nav="departments" title="Подразделения">
             <span class="nav-ico">▥</span><span class="nav-label">Подразделения</span>
         </a>
+        {% endif %}
         <a href="/employees" class="nav-item" data-nav="employees" title="Сотрудники">
             <span class="nav-ico">♙</span><span class="nav-label">Сотрудники</span>
         </a>
@@ -39,7 +53,9 @@
         </a>
     </nav>
     <div class="sidebar-bottom">
-        <span class="avatar small">{{ current_user.full_name[:1]|upper }}</span>
+        <a href="/profile" title="Профиль" style="display:block;text-decoration:none;">
+            {{ user_avatar(current_user, 'avatar small') }}
+        </a>
     </div>
     <div class="sidebar-resize" title="Потяни, чтобы изменить ширину"></div>
 </aside>

@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% from '_macros.html' import user_avatar %}
 {% block title %}Итоги месяца — WorkMonitor{% endblock %}
 {% block body %}
 <div class="app-shell">
@@ -6,12 +7,12 @@
     <main class="main-area">
         <header class="topbar">
             <div class="topbar-left">
-                <button class="icon-btn mobile-menu">☰</button>
+                <button class="icon-btn mobile-menu" id="mobileMenu">☰</button>
                 <h1>Итоги месяца</h1>
             </div>
             <div class="profile">
                 <span class="profile-name">{{ current_user.full_name }}</span>
-                <span class="avatar">{{ current_user.full_name[:1]|upper }}</span>
+                {{ user_avatar(current_user) }}
                 <a class="logout-link" href="/logout" title="Выйти">↗</a>
             </div>
         </header>
@@ -27,7 +28,7 @@
                 <div>
                     <p class="eyebrow">МЕСЯЧНАЯ СВОДКА</p>
                     <h2>Итоги: {{ month_name }} {{ year }}</h2>
-                    <p class="muted">Сводка доступна для просмотра по каждому сотруднику.</p>
+                    <p class="muted">Сводка по каждому сотруднику: план, факт, эффективность, отсутствия.</p>
                 </div>
                 <a class="primary-btn" href="/calendar">Открыть календарь →</a>
             </div>
@@ -46,38 +47,108 @@
                 </a>
             </div>
 
-            <div class="panel">
-                <div class="table-wrap">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Сотрудник</th>
-                                <th>Ставка</th>
-                                <th>Рабочих дней по графику</th>
-                                <th>Часов по графику</th>
-                                <th>Дней отпуска</th>
-                                <th>Дней больничного</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for r in rows %}
-                            <tr>
-                                <td>
-                                    <strong>{{ r.user.full_name }}</strong>
-                                    <div class="muted">{{ r.user.department.name if r.user.department else '' }}</div>
-                                </td>
-                                <td>{{ 'Полная' if r.user.work_rate=='full' else 'Половина' }}</td>
-                                <td>{{ r.days }}</td>
-                                <td>{{ '%.1f'|format(r.hours) }}</td>
-                                <td>{{ r.vacation }}</td>
-                                <td>{{ r.sick }}</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
+            {% if rows %}
+            <div class="month-cards-grid">
+                {% for r in rows %}
+                <article class="month-card {{ 'is-me' if r.user.id == current_user.id else '' }}">
+
+                    <div class="month-card-head">
+                        {{ user_avatar(r.user, 'month-card-avatar') }}
+                        <div class="month-card-info">
+                            <div class="month-card-name-row">
+                                <strong>{{ r.user.full_name }}</strong>
+                                {% if r.user.id == current_user.id %}
+                                <span class="month-card-you">Вы</span>
+                                {% endif %}
+                            </div>
+                            <span>
+                                {{ r.user.position or 'Сотрудник' }}
+                                {% if r.user.department %} · {{ r.user.department.name }}{% endif %}
+                            </span>
+                            <small>{{ 'Полная ставка' if r.user.work_rate=='full' else 'Полставки' }}</small>
+                        </div>
+                    </div>
+
+                    <div class="month-card-progress">
+                        <div class="month-card-progress-head">
+                            <span>📊 Отработано от плана</span>
+                            <strong class="
+                                {% if r.progress >= 100 %}good
+                                {% elif r.progress >= 70 %}warn
+                                {% else %}bad{% endif %}">
+                                {{ r.progress }}%
+                            </strong>
+                        </div>
+                        <div class="month-card-bar">
+                            <span class="month-bar-fill month-bar-plan" data-progress="{{ r.progress }}"></span>
+                        </div>
+                    </div>
+
+                    <div class="month-card-progress">
+                        <div class="month-card-progress-head">
+                            <span>📈 Средняя эффективность</span>
+                            <strong class="
+                                {% if r.avg_efficiency >= 85 %}good
+                                {% elif r.avg_efficiency >= 60 %}warn
+                                {% else %}bad{% endif %}">
+                                {{ r.avg_efficiency }}%
+                            </strong>
+                        </div>
+                        <div class="month-card-bar">
+                            <span class="month-bar-fill month-bar-eff" data-progress="{{ r.avg_efficiency }}"></span>
+                        </div>
+                    </div>
+
+                    <div class="month-card-metrics">
+                        <div class="month-metric">
+                            <span>📅 Рабочих дней</span>
+                            <strong>{{ r.days }}</strong>
+                        </div>
+                        <div class="month-metric">
+                            <span>📋 План</span>
+                            <strong>{{ '%.1f'|format(r.hours) }} ч</strong>
+                        </div>
+                        <div class="month-metric accent">
+                            <span>✅ Факт</span>
+                            <strong>{{ '%.1f'|format(r.actual_hours) }} ч</strong>
+                        </div>
+                        {% if r.vacation > 0 %}
+                        <div class="month-metric soft-blue">
+                            <span>🏖 Отпуск</span>
+                            <strong>{{ r.vacation }} дн.</strong>
+                        </div>
+                        {% endif %}
+                        {% if r.sick > 0 %}
+                        <div class="month-metric soft-orange">
+                            <span>🤒 Больничный</span>
+                            <strong>{{ r.sick }} дн.</strong>
+                        </div>
+                        {% endif %}
+                    </div>
+                </article>
+                {% endfor %}
             </div>
+            {% else %}
+            <div class="empty-panel">
+                За этот месяц ещё нет данных ни по одному сотруднику.
+            </div>
+            {% endif %}
+
+            <p class="notice">
+                💡 «План» — сумма часов по графику. «Факт» — реально отработанное время.
+                «Эффективность» — средний e% из дейли и отметок факта.
+            </p>
         </section>
     </main>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('.month-bar-fill').forEach(el => {
+        const raw = parseInt(el.dataset.progress, 10);
+        const value = isNaN(raw) ? 0 : Math.max(0, Math.min(100, raw));
+        el.style.width = value + '%';
+    });
+});
+</script>
 {% endblock %}
